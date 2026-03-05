@@ -1,9 +1,7 @@
 use std::error::Error;
 use std::io::{self, BufRead};
 
-use crate::otlp;
-
-const COLLECTOR_URL: &str = "http://localhost:4318/v1/traces";
+use crate::emit;
 
 pub fn run(service_name: &str) -> Result<(), Box<dyn Error>> {
     let stdin = io::stdin();
@@ -22,13 +20,6 @@ pub fn run(service_name: &str) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let payload = otlp::build_trace_export(service_name, &spans);
-
-    reqwest::blocking::Client::new()
-        .post(COLLECTOR_URL)
-        .header("Content-Type", "application/json")
-        .body(serde_json::to_string(&payload)?)
-        .send()?;
-
+    emit::traces(service_name, &spans);
     Ok(())
 }

@@ -1,11 +1,11 @@
 use clap::{Parser, Subcommand};
 
 mod cmd;
-#[allow(dead_code)]
+mod emit;
 mod git_context;
+mod hooks;
 mod otlp;
 mod parsers;
-#[allow(dead_code)]
 mod sensitive;
 
 #[derive(Parser)]
