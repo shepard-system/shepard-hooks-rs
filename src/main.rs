@@ -1,8 +1,12 @@
 use clap::{Parser, Subcommand};
 
 mod cmd;
+#[allow(dead_code)]
+mod git_context;
 mod otlp;
 mod parsers;
+#[allow(dead_code)]
+mod sensitive;
 
 #[derive(Parser)]
 #[command(name = "shepard-hook", about = "Rust accelerator for shepard-obs-stack hooks")]
@@ -36,6 +40,14 @@ enum Commands {
         /// Path to session log file
         file_path: String,
     },
+
+    /// Run a full hook (parse stdin + emit metrics + parse session)
+    Hook {
+        /// Provider: claude, codex, gemini
+        provider: String,
+        /// Hook name (e.g. post-tool-use, stop, notify)
+        hook_name: String,
+    },
 }
 
 fn main() {
@@ -52,6 +64,10 @@ fn main() {
             provider,
             file_path,
         } => cmd::parse_session::run(&provider, &file_path),
+        Commands::Hook {
+            provider,
+            hook_name,
+        } => cmd::hook::run(&provider, &hook_name),
     };
 
     if let Err(e) = result {
