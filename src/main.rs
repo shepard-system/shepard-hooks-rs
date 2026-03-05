@@ -11,7 +11,8 @@ mod sensitive;
 #[derive(Parser)]
 #[command(
     name = "shepard-hook",
-    about = "Rust accelerator for shepard-obs-stack hooks"
+    about = "Rust accelerator for shepard-obs-stack hooks",
+    version
 )]
 struct Cli {
     #[command(subcommand)]
