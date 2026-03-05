@@ -1,7 +1,6 @@
 # shepard-hooks-rs
 
 [![CI](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/ci.yml)
-[![Release](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/release.yml/badge.svg)](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/shepard-system/shepard-hooks-rs?color=green&logo=github)](https://github.com/shepard-system/shepard-hooks-rs/releases/latest)
 [![Rust](https://img.shields.io/badge/Rust-edition_2024-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos-lightgrey?logo=apple&logoColor=white)](https://github.com/shepard-system/shepard-hooks-rs/releases)
