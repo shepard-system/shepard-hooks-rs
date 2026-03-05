@@ -1,0 +1,52 @@
+@startuml c2-container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' ── Dark theme (GitHub #0d1117) ──
+skinparam backgroundColor #0d1117
+skinparam defaultFontColor #e6edf3
+skinparam ArrowColor #8b949e
+skinparam ArrowFontColor #8b949e
+skinparam titleFontColor #e6edf3
+skinparam legendBackgroundColor #161b22
+skinparam legendBorderColor #30363d
+skinparam legendFontColor #e6edf3
+
+UpdateElementStyle("person", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("system", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("external_system", $bgColor="#30363d", $fontColor="#e6edf3", $borderColor="#484f58")
+UpdateElementStyle("container", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("system_boundary", $fontColor="#8b949e", $borderColor="#30363d")
+
+LAYOUT_WITH_LEGEND()
+
+title Container Diagram — shepard-hook CLI
+
+System_Ext(cli, "AI CLI", "Claude Code / Codex / Gemini CLI\nInvokes shepard-hook as a hook handler")
+
+System_Boundary(binary, "shepard-hook binary (Rust)") {
+    Container(cmd_hook, "hook command", "clap subcommand", "Full hook replacement:\nstdin JSON -> dispatch -> metrics + traces")
+
+    Container(cmd_emit_metric, "emit-metric command", "clap subcommand", "Direct OTLP metric POST\n(backward-compat for bash callers)")
+
+    Container(cmd_emit_traces, "emit-traces command", "clap subcommand", "Stdin JSONL spans -> OTLP trace POST\n(backward-compat for bash callers)")
+
+    Container(cmd_parse_session, "parse-session command", "clap subcommand", "Parse session file -> JSONL spans on stdout\n(claude / codex / gemini)")
+}
+
+Container_Ext(session_files, "Session Files", "filesystem", "~/.claude/projects/\n~/.codex/sessions/\n~/.gemini/tmp/")
+
+Container_Ext(collector, "OTel Collector", "OTLP HTTP", "Ingress for metrics + traces")
+
+Rel(cli, cmd_hook, "stdin JSON + args", "shepard-hook hook <provider> <hook>")
+Rel(cli, cmd_emit_metric, "args: name, value, labels", "shepard-hook emit-metric ...")
+Rel(cli, cmd_emit_traces, "stdin JSONL spans", "shepard-hook emit-traces ...")
+Rel(cli, cmd_parse_session, "args: provider, path", "shepard-hook parse-session ...")
+
+Rel(cmd_hook, session_files, "Read session logs\n(stop/notify/session-end hooks)")
+Rel(cmd_parse_session, session_files, "Read session logs")
+
+Rel(cmd_hook, collector, "OTLP HTTP POST\n/v1/metrics + /v1/traces", ":4318")
+Rel(cmd_emit_metric, collector, "OTLP HTTP POST /v1/metrics", ":4318")
+Rel(cmd_emit_traces, collector, "OTLP HTTP POST /v1/traces", ":4318")
+
+@enduml

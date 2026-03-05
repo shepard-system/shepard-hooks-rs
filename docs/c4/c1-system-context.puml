@@ -1,0 +1,42 @@
+@startuml c1-system-context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+' ── Dark theme (GitHub #0d1117) ──
+skinparam backgroundColor #0d1117
+skinparam defaultFontColor #e6edf3
+skinparam ArrowColor #8b949e
+skinparam ArrowFontColor #8b949e
+skinparam titleFontColor #e6edf3
+skinparam legendBackgroundColor #161b22
+skinparam legendBorderColor #30363d
+skinparam legendFontColor #e6edf3
+
+UpdateElementStyle("person", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("system", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("external_system", $bgColor="#30363d", $fontColor="#e6edf3", $borderColor="#484f58")
+
+LAYOUT_WITH_LEGEND()
+
+title System Context — shepard-hooks-rs
+
+Person(developer, "Developer", "Codes with AI CLI assistants")
+
+System_Ext(claude, "Claude Code", "AI coding assistant\nFires hook events on tool use, session start/stop")
+System_Ext(codex, "Codex CLI", "AI coding assistant\nFires notify on agent turn completion")
+System_Ext(gemini, "Gemini CLI", "AI coding assistant\nFires hook events on tool/model/agent/session")
+
+System(hooks_rs, "shepard-hook", "Rust binary — drop-in replacement for\nbash+jq+curl hook scripts.\nParses events, emits OTLP telemetry.")
+
+System_Ext(obs_stack, "The Eye (shepard-obs-stack)", "OTel Collector + Prometheus + Tempo + Grafana\nObservability backend")
+
+Rel(developer, claude, "Uses")
+Rel(developer, codex, "Uses")
+Rel(developer, gemini, "Uses")
+
+Rel(claude, hooks_rs, "Hook events\n(stdin JSON)", "PreToolUse, PostToolUse,\nStop, SessionStart")
+Rel(codex, hooks_rs, "Notify event\n(stdin JSON)", "agent-turn-complete")
+Rel(gemini, hooks_rs, "Hook events\n(stdin JSON)", "AfterTool, AfterModel,\nAfterAgent, SessionEnd")
+
+Rel(hooks_rs, obs_stack, "OTLP HTTP POST\nmetrics + traces", ":4318")
+
+@enduml

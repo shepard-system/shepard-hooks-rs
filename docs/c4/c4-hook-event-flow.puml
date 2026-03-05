@@ -1,0 +1,47 @@
+@startuml c4-hook-event-flow
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml
+
+' ── Dark theme (GitHub #0d1117) ──
+skinparam backgroundColor #0d1117
+skinparam defaultFontColor #e6edf3
+skinparam ArrowColor #8b949e
+skinparam ArrowFontColor #8b949e
+skinparam titleFontColor #e6edf3
+skinparam legendBackgroundColor #161b22
+skinparam legendBorderColor #30363d
+skinparam legendFontColor #e6edf3
+
+UpdateElementStyle("person", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("system", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("external_system", $bgColor="#30363d", $fontColor="#e6edf3", $borderColor="#484f58")
+UpdateElementStyle("container", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("component", $bgColor="#238636", $fontColor="#ffffff", $borderColor="#2ea043")
+
+LAYOUT_LEFT_RIGHT()
+
+title Dynamic Diagram — Claude PostToolUse event flow (shepard-hooks-rs)
+
+Container_Ext(claude, "Claude Code", "Fires PostToolUse hook")
+
+Container(hook, "shepard-hook hook claude post-tool-use", "Rust binary")
+Component(dispatch, "dispatch()", "hooks/mod.rs")
+Component(context, "HookContext", "hooks/context.rs")
+Component(handler, "PostToolUse", "hooks/claude.rs")
+Component(sensitive, "check_sensitive_access()", "sensitive.rs")
+Component(error_detect, "detect_tool_error()", "hooks/mod.rs")
+Component(emit, "emit::metric()", "emit.rs")
+
+Container_Ext(collector, "OTel Collector", ":4318")
+
+Rel(claude, hook, "1. stdin: {tool_name, tool_input, tool_response, cwd}")
+Rel(hook, dispatch, "2. dispatch('claude', 'post-tool-use')")
+Rel(hook, context, "3. HookContext::from_input(json)")
+Rel(dispatch, handler, "4. handler.execute(&ctx)")
+Rel(handler, sensitive, "5. check tool_input for .env / credentials")
+Rel(handler, error_detect, "6. detect_tool_error(tool_response)")
+Rel(handler, emit, "7a. emit 'sensitive_file_access' (if matched)")
+Rel(handler, emit, "7b. emit 'tool_calls' {status=success|error}")
+Rel(handler, emit, "7c. emit 'events' {type=tool_use}")
+Rel(emit, collector, "8. HTTP POST /v1/metrics (fire-and-forget)")
+
+@enduml

@@ -1,0 +1,78 @@
+@startuml c3-hook-components
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+' ── Dark theme (GitHub #0d1117) ──
+skinparam backgroundColor #0d1117
+skinparam defaultFontColor #e6edf3
+skinparam ArrowColor #8b949e
+skinparam ArrowFontColor #8b949e
+skinparam titleFontColor #e6edf3
+skinparam legendBackgroundColor #161b22
+skinparam legendBorderColor #30363d
+skinparam legendFontColor #e6edf3
+
+UpdateElementStyle("person", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("system", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("external_system", $bgColor="#30363d", $fontColor="#e6edf3", $borderColor="#484f58")
+UpdateElementStyle("container", $bgColor="#1f6feb", $fontColor="#ffffff", $borderColor="#388bfd")
+UpdateElementStyle("component", $bgColor="#238636", $fontColor="#ffffff", $borderColor="#2ea043")
+UpdateElementStyle("system_boundary", $fontColor="#8b949e", $borderColor="#30363d")
+
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram — hook command internals (shepard-hooks-rs)
+
+System_Ext(claude, "Claude Code", "PreToolUse, PostToolUse, Stop, SessionStart")
+System_Ext(codex, "Codex CLI", "Notify (agent-turn-complete)")
+System_Ext(gemini, "Gemini CLI", "AfterTool, AfterModel, AfterAgent, SessionEnd")
+
+Container_Ext(collector, "OTel Collector", "OTLP HTTP :4318")
+
+System_Boundary(hook_cmd, "hook command — cmd/hook.rs") {
+    Component(dispatch, "Dispatch Registry", "hooks/mod.rs", "Match (provider, hook_name) to\nHookHandler trait object.\n9 known combos, compile-time exhaustive.")
+
+    Component(context, "HookContext Builder", "hooks/context.rs", "Parses stdin JSON, resolves cwd,\ngit repo/branch, session_id.\nSession file finders for all 3 providers.")
+
+    Component(claude_handlers, "Claude Handlers", "hooks/claude.rs", "PreToolUse: sensitive file guard (exit 2)\nPostToolUse: tool_calls + events metrics\nStop: session_end + compaction + parse traces\nSessionStart: compaction context to stdout")
+
+    Component(codex_handler, "Codex Handler", "hooks/codex.rs", "Notify: filter agent-turn-complete,\nemit turn_end event, parse session traces")
+
+    Component(gemini_handlers, "Gemini Handlers", "hooks/gemini.rs", "AfterTool: tool_calls + events metrics\nAfterModel: filter finishReason, model_call\nAfterAgent: turn_end event\nSessionEnd: session_end + parse traces\nAll return {} to stdout")
+
+    Component(sensitive, "Sensitive Patterns", "sensitive.rs", "Regex-based detection of .env,\ncredentials, .pem, .key, id_rsa,\n.aws/ etc. in file paths and commands.")
+
+    Component(emit, "Fire-and-Forget Emitters", "emit.rs", "metric(): OTLP Sum counter POST\ntraces(): OTLP span array POST\nReads OTEL_HTTP_URL env var.\nErrors logged to stderr, never propagated.")
+
+    Component(parsers, "Session Parsers", "parsers/*.rs", "claude: JSONL dedup + tool join\ncodex: function_call/output join\ngemini: single JSON, inline toolCalls\nAll produce Vec<Value> spans.")
+
+    Component(git, "Git Context", "git_context.rs", "Extracts repo name and branch\nvia git rev-parse subprocess.")
+
+    Component(otlp, "OTLP Builders", "otlp.rs", "build_sum_metric(): metric JSON\nbuild_trace_export(): trace JSON\nOTLP ExportServiceRequest format.")
+}
+
+Rel(claude, dispatch, "stdin JSON")
+Rel(codex, dispatch, "stdin JSON")
+Rel(gemini, dispatch, "stdin JSON")
+
+Rel(dispatch, context, "build context from input")
+Rel(dispatch, claude_handlers, "route claude/*")
+Rel(dispatch, codex_handler, "route codex/notify")
+Rel(dispatch, gemini_handlers, "route gemini/*")
+
+Rel(context, git, "resolve repo + branch")
+
+Rel(claude_handlers, sensitive, "check file access")
+Rel(gemini_handlers, sensitive, "check file access")
+
+Rel(claude_handlers, emit, "emit metrics + traces")
+Rel(codex_handler, emit, "emit metrics + traces")
+Rel(gemini_handlers, emit, "emit metrics + traces")
+
+Rel(claude_handlers, parsers, "parse session file")
+Rel(codex_handler, parsers, "parse session file")
+Rel(gemini_handlers, parsers, "parse session file")
+
+Rel(emit, otlp, "build OTLP payloads")
+Rel(emit, collector, "HTTP POST")
+
+@enduml
