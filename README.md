@@ -2,8 +2,10 @@
 
 [![CI](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/ci.yml)
 [![Release](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/release.yml/badge.svg)](https://github.com/shepard-system/shepard-hooks-rs/actions/workflows/release.yml)
+[![GitHub release](https://img.shields.io/github/v/release/shepard-system/shepard-hooks-rs?color=green&logo=github)](https://github.com/shepard-system/shepard-hooks-rs/releases/latest)
 [![Rust](https://img.shields.io/badge/Rust-edition_2024-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos-lightgrey?logo=apple&logoColor=white)](https://github.com/shepard-system/shepard-hooks-rs/releases)
+[![codecov](https://codecov.io/gh/shepard-system/shepard-hooks-rs/graph/badge.svg)](https://codecov.io/gh/shepard-system/shepard-hooks-rs)
 [![License: Elastic-2.0](https://img.shields.io/badge/License-Elastic--2.0-blue.svg)](LICENSE)
 
 **Rust accelerator for [shepard-obs-stack](https://github.com/shepard-system/shepard-obs-stack) hooks** — optional drop-in replacement for bash+jq+curl hook scripts.
