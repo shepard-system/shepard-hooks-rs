@@ -9,7 +9,10 @@ mod parsers;
 mod sensitive;
 
 #[derive(Parser)]
-#[command(name = "shepard-hook", about = "Rust accelerator for shepard-obs-stack hooks")]
+#[command(
+    name = "shepard-hook",
+    about = "Rust accelerator for shepard-obs-stack hooks"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

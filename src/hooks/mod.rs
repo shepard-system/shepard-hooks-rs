@@ -3,11 +3,14 @@ pub mod codex;
 pub mod context;
 pub mod gemini;
 
-use regex::Regex;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::LazyLock;
 
+use regex::Regex;
+
 use self::context::HookContext;
+use crate::{emit, sensitive};
 
 // ---------------------------------------------------------------------------
 // HookHandler trait
@@ -54,7 +57,10 @@ pub enum HookError {
 impl fmt::Display for HookError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            HookError::UnknownHook { provider, hook_name } => {
+            HookError::UnknownHook {
+                provider,
+                hook_name,
+            } => {
                 write!(f, "unknown hook: {provider}/{hook_name}")
             }
             HookError::InvalidInput(msg) => write!(f, "invalid input: {msg}"),
@@ -97,6 +103,53 @@ static ERROR_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub fn detect_tool_error(response: &str) -> bool {
     ERROR_RE.is_match(response)
+}
+
+// ---------------------------------------------------------------------------
+// Shared tool-use metrics emitter (used by PostToolUse + AfterTool)
+// ---------------------------------------------------------------------------
+
+/// Emit tool_calls, events, and optionally sensitive_file_access metrics.
+pub fn emit_tool_use_metrics(ctx: &HookContext, source: &str) {
+    let tool_name = ctx.input["tool_name"]
+        .as_str()
+        .or_else(|| ctx.input["toolName"].as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let git_repo = ctx.git.repo.clone();
+
+    // Check sensitive access
+    let tool_input = &ctx.input["tool_input"];
+    if sensitive::check_sensitive_access(tool_input).is_some() {
+        let mut labels = HashMap::new();
+        labels.insert("source".into(), source.into());
+        labels.insert("tool".into(), tool_name.clone());
+        labels.insert("git_repo".into(), git_repo.clone());
+        emit::metric("sensitive_file_access", 1.0, &labels);
+    }
+
+    // Detect error in tool_response
+    let tool_response = ctx.input["tool_response"].as_str().unwrap_or("");
+    let tool_status = if detect_tool_error(tool_response) {
+        "error"
+    } else {
+        "success"
+    };
+
+    // Emit tool_calls counter
+    let mut labels = HashMap::new();
+    labels.insert("source".into(), source.into());
+    labels.insert("tool".into(), tool_name);
+    labels.insert("tool_status".into(), tool_status.into());
+    labels.insert("git_repo".into(), git_repo.clone());
+    emit::metric("tool_calls", 1.0, &labels);
+
+    // Emit events counter
+    let mut labels = HashMap::new();
+    labels.insert("source".into(), source.into());
+    labels.insert("event_type".into(), "tool_use".into());
+    labels.insert("git_repo".into(), git_repo);
+    emit::metric("events", 1.0, &labels);
 }
 
 // ---------------------------------------------------------------------------

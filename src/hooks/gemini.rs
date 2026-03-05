@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::context::{self, HookContext};
 use super::{HookError, HookHandler, HookOutput};
-use crate::{emit, parsers, sensitive};
+use crate::{emit, parsers};
 
 // ---------------------------------------------------------------------------
 // AfterTool
@@ -21,46 +21,7 @@ impl HookHandler for AfterTool {
     }
 
     fn execute(&self, ctx: &HookContext) -> Result<HookOutput, HookError> {
-        let tool_name = ctx.input["tool_name"]
-            .as_str()
-            .or_else(|| ctx.input["toolName"].as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let git_repo = ctx.git.repo.clone();
-
-        // Check sensitive access
-        let tool_input = &ctx.input["tool_input"];
-        if sensitive::check_sensitive_access(tool_input).is_some() {
-            let mut labels = HashMap::new();
-            labels.insert("source".into(), "gemini-cli".into());
-            labels.insert("tool".into(), tool_name.clone());
-            labels.insert("git_repo".into(), git_repo.clone());
-            emit::metric("sensitive_file_access", 1.0, &labels);
-        }
-
-        // Detect error in tool_response
-        let tool_response = ctx.input["tool_response"].as_str().unwrap_or("");
-        let tool_status = if super::detect_tool_error(tool_response) {
-            "error"
-        } else {
-            "success"
-        };
-
-        // Emit tool_calls counter
-        let mut labels = HashMap::new();
-        labels.insert("source".into(), "gemini-cli".into());
-        labels.insert("tool".into(), tool_name);
-        labels.insert("tool_status".into(), tool_status.into());
-        labels.insert("git_repo".into(), git_repo.clone());
-        emit::metric("tool_calls", 1.0, &labels);
-
-        // Emit events counter
-        let mut labels = HashMap::new();
-        labels.insert("source".into(), "gemini-cli".into());
-        labels.insert("event_type".into(), "tool_use".into());
-        labels.insert("git_repo".into(), git_repo);
-        emit::metric("events", 1.0, &labels);
-
+        super::emit_tool_use_metrics(ctx, "gemini-cli");
         Ok(HookOutput::Json(json!({})))
     }
 }
@@ -181,7 +142,6 @@ mod tests {
             cwd: ".".into(),
             git: crate::git_context::GitContext {
                 repo: "test-repo".into(),
-                branch: "main".into(),
             },
             session_id: String::new(),
         }

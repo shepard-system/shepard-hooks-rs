@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::error::Error;
 use std::fs;
 
@@ -100,7 +100,10 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         .count();
 
     // Turn count (user messages)
-    let turn_count = msgs.iter().filter(|m| m["type"].as_str() == Some("user")).count();
+    let turn_count = msgs
+        .iter()
+        .filter(|m| m["type"].as_str() == Some("user"))
+        .count();
 
     // Thinking blocks
     let thinking_count: usize = msgs
@@ -138,10 +141,24 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         root_attrs["interruption.count"] = json!(interruption_count.to_string());
     }
 
-    spans.push(make_span(&trace_id, root_sid, "", "gemini.session", t_start, t_end, 0, &root_attrs));
     spans.push(make_span(
-        &trace_id, meta_sid, root_sid, "gemini.session.meta",
-        t_start, t_start, 0,
+        &trace_id,
+        root_sid,
+        "",
+        "gemini.session",
+        t_start,
+        t_end,
+        0,
+        &root_attrs,
+    ));
+    spans.push(make_span(
+        &trace_id,
+        meta_sid,
+        root_sid,
+        "gemini.session.meta",
+        t_start,
+        t_start,
+        0,
         &json!({"session.id": session_id, "provider": "gemini-cli"}),
     ));
 
@@ -178,12 +195,20 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
             }
         }
 
-        let end_ts = if t.timestamp.is_empty() { &t.msg_ts } else { &t.timestamp };
+        let end_ts = if t.timestamp.is_empty() {
+            &t.msg_ts
+        } else {
+            &t.timestamp
+        };
         spans.push(make_span(
-            &trace_id, &span_id, root_sid,
+            &trace_id,
+            &span_id,
+            root_sid,
             &format!("gemini.tool.{}", t.name),
-            &t.msg_ts, end_ts,
-            if is_err { 2 } else { 0 }, &attrs,
+            &t.msg_ts,
+            end_ts,
+            if is_err { 2 } else { 0 },
+            &attrs,
         ));
     }
 
@@ -191,7 +216,16 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_span(trace_id: &str, span_id: &str, parent: &str, name: &str, start: &str, end: &str, status: u8, attrs: &Value) -> Value {
+fn make_span(
+    trace_id: &str,
+    span_id: &str,
+    parent: &str,
+    name: &str,
+    start: &str,
+    end: &str,
+    status: u8,
+    attrs: &Value,
+) -> Value {
     json!({
         "trace_id": trace_id,
         "span_id": span_id,

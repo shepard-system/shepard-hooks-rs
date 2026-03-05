@@ -11,7 +11,11 @@ fn binary() -> Command {
 #[test]
 fn parse_session_claude_produces_spans() {
     let output = binary()
-        .args(["parse-session", "claude", "tests/fixtures/claude-session.jsonl"])
+        .args([
+            "parse-session",
+            "claude",
+            "tests/fixtures/claude-session.jsonl",
+        ])
         .output()
         .expect("failed to run");
 
@@ -20,7 +24,12 @@ fn parse_session_claude_produces_spans() {
     let lines: Vec<&str> = stdout.lines().collect();
 
     // Root span + meta span + 1 tool span = 3
-    assert_eq!(lines.len(), 3, "expected 3 spans, got {}: {stdout}", lines.len());
+    assert_eq!(
+        lines.len(),
+        3,
+        "expected 3 spans, got {}: {stdout}",
+        lines.len()
+    );
 
     // Verify root span
     let root: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -39,13 +48,20 @@ fn parse_session_claude_produces_spans() {
     let tool: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
     assert_eq!(tool["name"], "claude.tool.Read");
     assert_eq!(tool["attributes"]["tool.name"], "Read");
-    assert_eq!(tool["attributes"]["tool.input.file_path"], "/app/src/main.rs");
+    assert_eq!(
+        tool["attributes"]["tool.input.file_path"],
+        "/app/src/main.rs"
+    );
 }
 
 #[test]
 fn parse_session_codex_produces_spans() {
     let output = binary()
-        .args(["parse-session", "codex", "tests/fixtures/codex-session.jsonl"])
+        .args([
+            "parse-session",
+            "codex",
+            "tests/fixtures/codex-session.jsonl",
+        ])
         .output()
         .expect("failed to run");
 
@@ -54,7 +70,12 @@ fn parse_session_codex_produces_spans() {
     let lines: Vec<&str> = stdout.lines().collect();
 
     // Root + meta + 1 tool = 3
-    assert_eq!(lines.len(), 3, "expected 3 spans, got {}: {stdout}", lines.len());
+    assert_eq!(
+        lines.len(),
+        3,
+        "expected 3 spans, got {}: {stdout}",
+        lines.len()
+    );
 
     let root: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(root["name"], "codex.session");
@@ -74,7 +95,11 @@ fn parse_session_codex_produces_spans() {
 #[test]
 fn parse_session_gemini_produces_spans() {
     let output = binary()
-        .args(["parse-session", "gemini", "tests/fixtures/gemini-session.json"])
+        .args([
+            "parse-session",
+            "gemini",
+            "tests/fixtures/gemini-session.json",
+        ])
         .output()
         .expect("failed to run");
 
@@ -83,7 +108,12 @@ fn parse_session_gemini_produces_spans() {
     let lines: Vec<&str> = stdout.lines().collect();
 
     // Root + meta + 1 tool = 3
-    assert_eq!(lines.len(), 3, "expected 3 spans, got {}: {stdout}", lines.len());
+    assert_eq!(
+        lines.len(),
+        3,
+        "expected 3 spans, got {}: {stdout}",
+        lines.len()
+    );
 
     let root: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(root["name"], "gemini.session");

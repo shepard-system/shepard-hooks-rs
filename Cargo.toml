@@ -3,7 +3,7 @@ name = "shepard-hook"
 version = "0.1.0"
 edition = "2024"
 description = "Rust accelerator for shepard-obs-stack hooks — replaces jq/curl with a single binary"
-license = "MIT"
+license = "Elastic-2.0"
 repository = "https://github.com/shepard-system/shepard-hooks-rs"
 
 [[bin]]

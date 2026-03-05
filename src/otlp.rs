@@ -1,5 +1,8 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
+
+/// OTLP AggregationTemporality: each data point covers only the interval since the last emit.
+const AGGREGATION_TEMPORALITY_DELTA: u8 = 1;
 
 /// Build an OTLP ExportMetricsServiceRequest with a single Sum metric (DELTA).
 pub fn build_sum_metric(
@@ -36,7 +39,7 @@ pub fn build_sum_metric(
                             "timeUnixNano": time_unix_nano,
                             "attributes": attrs
                         }],
-                        "aggregationTemporality": 1,
+                        "aggregationTemporality": AGGREGATION_TEMPORALITY_DELTA,
                         "isMonotonic": true
                     }
                 }]
@@ -122,7 +125,10 @@ mod tests {
         assert_eq!(metric["name"], "tool_calls");
         assert_eq!(metric["sum"]["dataPoints"][0]["asDouble"], 1.0);
         assert_eq!(metric["sum"]["dataPoints"][0]["timeUnixNano"], "1234567890");
-        assert_eq!(metric["sum"]["aggregationTemporality"], 1);
+        assert_eq!(
+            metric["sum"]["aggregationTemporality"],
+            AGGREGATION_TEMPORALITY_DELTA
+        );
         assert_eq!(metric["sum"]["isMonotonic"], true);
 
         // Labels present in dataPoint attributes

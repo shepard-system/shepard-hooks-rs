@@ -28,10 +28,7 @@ impl HookContext {
 
         let git = git_context::get(&cwd);
 
-        let session_id = input["session_id"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let session_id = input["session_id"].as_str().unwrap_or("").to_string();
 
         HookContext {
             input,
@@ -54,9 +51,7 @@ pub fn find_claude_session(cwd: &str, session_id: &str) -> Option<PathBuf> {
     }
     let home = std::env::var("HOME").ok()?;
     let slug = cwd.replace('/', "-");
-    let path = PathBuf::from(format!(
-        "{home}/.claude/projects/{slug}/{session_id}.jsonl"
-    ));
+    let path = PathBuf::from(format!("{home}/.claude/projects/{slug}/{session_id}.jsonl"));
     if path.exists() { Some(path) } else { None }
 }
 

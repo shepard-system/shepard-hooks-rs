@@ -1,10 +1,10 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use super::common::{pad16, ts_to_ns, ts_parts, subtract_ms, parts_to_ns};
+use super::common::{pad16, parts_to_ns, subtract_ms, ts_parts, ts_to_ns};
 
 /// Parse a Claude Code JSONL session file and return spans as Vec<Value>.
 /// Returns empty vec on any parse error or missing session ID.
@@ -117,13 +117,11 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         .iter()
         .find_map(|e| e["gitBranch"].as_str())
         .unwrap_or("unknown");
-    let git_repo = all
-        .iter()
-        .find_map(|e| e["gitRepo"].as_str())
-        .unwrap_or("");
+    let git_repo = all.iter().find_map(|e| e["gitRepo"].as_str()).unwrap_or("");
 
     // Token aggregation
-    let (mut tok_in, mut tok_out, mut tok_cache_read, mut tok_cache_create) = (0i64, 0i64, 0i64, 0i64);
+    let (mut tok_in, mut tok_out, mut tok_cache_read, mut tok_cache_create) =
+        (0i64, 0i64, 0i64, 0i64);
     for a in &assistants {
         let u = &a["message"]["usage"];
         tok_in += u["input_tokens"].as_i64().unwrap_or(0);
@@ -146,7 +144,11 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         .map(|a| {
             a["message"]["content"]
                 .as_array()
-                .map(|arr| arr.iter().filter(|c| c["type"].as_str() == Some("thinking")).count())
+                .map(|arr| {
+                    arr.iter()
+                        .filter(|c| c["type"].as_str() == Some("thinking"))
+                        .count()
+                })
                 .unwrap_or(0)
         })
         .sum();
@@ -257,7 +259,8 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
             if content.is_string() {
                 true
             } else if let Some(arr) = content.as_array() {
-                !arr.iter().any(|c| c["type"].as_str() == Some("tool_result"))
+                !arr.iter()
+                    .any(|c| c["type"].as_str() == Some("tool_result"))
             } else {
                 false
             }
@@ -280,8 +283,14 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         })
         .map(|e| McpEntry {
             ts: e["timestamp"].as_str().unwrap_or("").to_string(),
-            server: e["data"]["serverName"].as_str().unwrap_or("unknown").to_string(),
-            tool: e["data"]["toolName"].as_str().unwrap_or("unknown").to_string(),
+            server: e["data"]["serverName"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
+            tool: e["data"]["toolName"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
             elapsed_ms: e["data"]["elapsedTimeMs"].as_i64().unwrap_or(0),
         })
         .collect();
@@ -302,10 +311,13 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
             if prompt.len() > 80 {
                 prompt.truncate(80);
             }
-            agent_groups.entry(aid.clone()).or_default().push(AgentEntry {
-                ts: e["timestamp"].as_str().unwrap_or("").to_string(),
-                prompt,
-            });
+            agent_groups
+                .entry(aid.clone())
+                .or_default()
+                .push(AgentEntry {
+                    ts: e["timestamp"].as_str().unwrap_or("").to_string(),
+                    prompt,
+                });
         }
     }
 
@@ -332,12 +344,26 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         root_attrs["interruption.count"] = json!(interruption_count.to_string());
     }
 
-    spans.push(make_span(&trace_id, root_sid, "", "claude.session", t_start, t_end, 0, &root_attrs));
+    spans.push(make_span(
+        &trace_id,
+        root_sid,
+        "",
+        "claude.session",
+        t_start,
+        t_end,
+        0,
+        &root_attrs,
+    ));
 
     // 1b. Session meta marker
     spans.push(make_span(
-        &trace_id, meta_sid, root_sid, "claude.session.meta",
-        t_start, t_start, 0,
+        &trace_id,
+        meta_sid,
+        root_sid,
+        "claude.session.meta",
+        t_start,
+        t_start,
+        0,
         &json!({"session.id": session_id, "provider": "claude-code"}),
     ));
 
@@ -364,7 +390,16 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
             attrs["tool.input.pattern"] = json!(t.pattern);
         }
 
-        spans.push(make_span(&trace_id, &span_id, root_sid, &format!("claude.tool.{}", t.name), &t.ts, end_ts, if is_err { 2 } else { 0 }, &attrs));
+        spans.push(make_span(
+            &trace_id,
+            &span_id,
+            root_sid,
+            &format!("claude.tool.{}", t.name),
+            &t.ts,
+            end_ts,
+            if is_err { 2 } else { 0 },
+            &attrs,
+        ));
     }
 
     // 3. MCP call spans (offset: 10016)
@@ -394,9 +429,13 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         let prompt = group.first().map(|a| a.prompt.as_str()).unwrap_or("");
 
         spans.push(make_span(
-            &trace_id, &span_id, root_sid,
+            &trace_id,
+            &span_id,
+            root_sid,
             &format!("claude.agent.{}", aid),
-            tss.first().unwrap_or(&""), tss.last().unwrap_or(&""), 0,
+            tss.first().unwrap_or(&""),
+            tss.last().unwrap_or(&""),
+            0,
             &json!({"agent.id": *aid, "agent.prompt": prompt}),
         ));
     }
@@ -415,12 +454,39 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_span(trace_id: &str, span_id: &str, parent: &str, name: &str, start: &str, end: &str, status: u8, attrs: &Value) -> Value {
-    make_span_raw(trace_id, span_id, parent, name, &ts_to_ns(start), &ts_to_ns(end), status, attrs)
+fn make_span(
+    trace_id: &str,
+    span_id: &str,
+    parent: &str,
+    name: &str,
+    start: &str,
+    end: &str,
+    status: u8,
+    attrs: &Value,
+) -> Value {
+    make_span_raw(
+        trace_id,
+        span_id,
+        parent,
+        name,
+        &ts_to_ns(start),
+        &ts_to_ns(end),
+        status,
+        attrs,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_span_raw(trace_id: &str, span_id: &str, parent: &str, name: &str, start_ns: &str, end_ns: &str, status: u8, attrs: &Value) -> Value {
+fn make_span_raw(
+    trace_id: &str,
+    span_id: &str,
+    parent: &str,
+    name: &str,
+    start_ns: &str,
+    end_ns: &str,
+    status: u8,
+    attrs: &Value,
+) -> Value {
     json!({
         "trace_id": trace_id,
         "span_id": span_id,

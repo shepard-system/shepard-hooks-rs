@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::io::Read;
 
-use crate::hooks::{self, HookOutput};
 use crate::hooks::context::HookContext;
+use crate::hooks::{self, HookOutput};
 
 pub fn run(provider: &str, hook_name: &str) -> Result<(), Box<dyn Error>> {
     // Resolve handler (validates provider/hook_name)

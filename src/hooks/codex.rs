@@ -35,9 +35,7 @@ impl HookHandler for Notify {
         emit::metric("events", 1.0, &labels);
 
         // Find session file by thread-id and parse → emit traces
-        let thread_id = ctx.input["thread-id"]
-            .as_str()
-            .unwrap_or("");
+        let thread_id = ctx.input["thread-id"].as_str().unwrap_or("");
 
         if let Some(session_file) = context::find_codex_session(thread_id) {
             let path_str = session_file.to_string_lossy().to_string();
@@ -67,7 +65,6 @@ mod tests {
             cwd: ".".into(),
             git: crate::git_context::GitContext {
                 repo: "test-repo".into(),
-                branch: "main".into(),
             },
             session_id: String::new(),
         }

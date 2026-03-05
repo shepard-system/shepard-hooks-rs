@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
@@ -84,24 +84,25 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
     let t_end = timestamps.last().copied().unwrap_or("");
 
     // Tokens from last token_count event
-    let tok = entries
-        .iter()
-        .rev()
-        .find_map(|e| {
-            if e["type"].as_str() == Some("event_msg")
-                && e["payload"]["type"].as_str() == Some("token_count")
-                && !e["payload"]["info"].is_null()
-            {
-                Some(&e["payload"]["info"]["total_token_usage"])
-            } else {
-                None
-            }
-        });
+    let tok = entries.iter().rev().find_map(|e| {
+        if e["type"].as_str() == Some("event_msg")
+            && e["payload"]["type"].as_str() == Some("token_count")
+            && !e["payload"]["info"].is_null()
+        {
+            Some(&e["payload"]["info"]["total_token_usage"])
+        } else {
+            None
+        }
+    });
 
     let tok_in = tok.and_then(|t| t["input_tokens"].as_i64()).unwrap_or(0);
     let tok_out = tok.and_then(|t| t["output_tokens"].as_i64()).unwrap_or(0);
-    let tok_cache = tok.and_then(|t| t["cached_input_tokens"].as_i64()).unwrap_or(0);
-    let tok_reasoning = tok.and_then(|t| t["reasoning_output_tokens"].as_i64()).unwrap_or(0);
+    let tok_cache = tok
+        .and_then(|t| t["cached_input_tokens"].as_i64())
+        .unwrap_or(0);
+    let tok_reasoning = tok
+        .and_then(|t| t["reasoning_output_tokens"].as_i64())
+        .unwrap_or(0);
     let tok_total = tok.and_then(|t| t["total_tokens"].as_i64()).unwrap_or(0);
 
     // Tool calls: join function_call → function_call_output by call_id
@@ -114,7 +115,10 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
             let call_id = e["payload"]["call_id"].as_str().unwrap_or("").to_string();
             let name = e["payload"]["name"].as_str().unwrap_or("").to_string();
             let ts = e["timestamp"].as_str().unwrap_or("").to_string();
-            let args = e["payload"]["arguments"].as_str().unwrap_or("{}").to_string();
+            let args = e["payload"]["arguments"]
+                .as_str()
+                .unwrap_or("{}")
+                .to_string();
             call_order.push(call_id.clone());
             calls.insert(call_id, (name, ts, args));
         }
@@ -231,10 +235,24 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         root_attrs["interruption.count"] = json!(interruption_count.to_string());
     }
 
-    spans.push(make_span(&trace_id, root_sid, "", "codex.session", t_start, t_end, 0, &root_attrs));
     spans.push(make_span(
-        &trace_id, meta_sid, root_sid, "codex.session.meta",
-        t_start, t_start, 0,
+        &trace_id,
+        root_sid,
+        "",
+        "codex.session",
+        t_start,
+        t_end,
+        0,
+        &root_attrs,
+    ));
+    spans.push(make_span(
+        &trace_id,
+        meta_sid,
+        root_sid,
+        "codex.session.meta",
+        t_start,
+        t_start,
+        0,
         &json!({"session.id": session_id, "provider": "codex"}),
     ));
 
@@ -248,20 +266,47 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         if !t.file_path.is_empty() {
             attrs["tool.input.file_path"] = json!(t.file_path);
         }
-        spans.push(make_span(&trace_id, &span_id, root_sid, &format!("codex.tool.{}", t.name), &t.ts, &t.end_ts, 0, &attrs));
+        spans.push(make_span(
+            &trace_id,
+            &span_id,
+            root_sid,
+            &format!("codex.tool.{}", t.name),
+            &t.ts,
+            &t.end_ts,
+            0,
+            &attrs,
+        ));
     }
 
     // Compaction spans
     for (i, ts) in compactions.iter().enumerate() {
         let span_id = pad16(i + 30016);
-        spans.push(make_span(&trace_id, &span_id, root_sid, "codex.compaction", ts, ts, 0, &json!({})));
+        spans.push(make_span(
+            &trace_id,
+            &span_id,
+            root_sid,
+            "codex.compaction",
+            ts,
+            ts,
+            0,
+            &json!({}),
+        ));
     }
 
     Ok(spans)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_span(trace_id: &str, span_id: &str, parent: &str, name: &str, start: &str, end: &str, status: u8, attrs: &Value) -> Value {
+fn make_span(
+    trace_id: &str,
+    span_id: &str,
+    parent: &str,
+    name: &str,
+    start: &str,
+    end: &str,
+    status: u8,
+    attrs: &Value,
+) -> Value {
     json!({
         "trace_id": trace_id,
         "span_id": span_id,

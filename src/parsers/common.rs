@@ -87,7 +87,10 @@ mod tests {
 
     #[test]
     fn subtract_ms_works() {
-        let p = TsParts { s: 100, ns: 500_000_000 };
+        let p = TsParts {
+            s: 100,
+            ns: 500_000_000,
+        };
         let r = subtract_ms(&p, 1500);
         assert_eq!(r.s, 99);
         assert_eq!(r.ns, 0);
@@ -95,7 +98,10 @@ mod tests {
 
     #[test]
     fn subtract_ms_borrows() {
-        let p = TsParts { s: 100, ns: 200_000_000 };
+        let p = TsParts {
+            s: 100,
+            ns: 200_000_000,
+        };
         let r = subtract_ms(&p, 500);
         assert_eq!(r.s, 99);
         assert_eq!(r.ns, 700_000_000);

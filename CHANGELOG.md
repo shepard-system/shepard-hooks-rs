@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-03-05
+
 ### Added
 
 - **parse-session command** — parse Claude, Codex, and Gemini session files into JSONL spans
@@ -19,5 +21,5 @@ All notable changes to this project will be documented in this file.
 - Sensitive file detection (`.env`, credentials, `.pem`, `.key`, `id_rsa`, `.aws/`)
 - Git context extraction (repo name + branch)
 - Fire-and-forget OTLP emitters with `OTEL_HTTP_URL` env var support
-- CI workflow (clippy + test) and release workflow (4 cross-compile targets)
+- CI workflow (clippy + test + fmt) and release workflow (4 cross-compile targets)
 - C4 architecture diagrams (system context, container, component, dynamic flow)
