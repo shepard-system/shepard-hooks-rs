@@ -30,7 +30,9 @@ shepard-hook parse-session <provider> <file_path>
     → providers: claude, codex, gemini
 
 shepard-hook hook <provider> <hook_name>
-    → (Phase 3) full hook replacement: stdin JSON → metrics + session parse
+    → full hook replacement: stdin JSON → metrics + session parse
+    → 9 hooks: claude/{pre-tool-use,post-tool-use,stop,session-start},
+      codex/notify, gemini/{after-tool,after-model,after-agent,session-end}
 ```
 
 ## Architecture
@@ -39,15 +41,22 @@ shepard-hook hook <provider> <hook_name>
 src/
 ├── main.rs              ← CLI entry (clap)
 ├── cmd/
-│   ├── emit_metric.rs   ← OTLP metric builder + HTTP POST
-│   ├── emit_traces.rs   ← stdin JSONL → OTLP trace POST
+│   ├── emit_metric.rs   ← delegates to emit::metric()
+│   ├── emit_traces.rs   ← delegates to emit::traces()
 │   ├── parse_session.rs ← dispatch to provider parser
-│   └── hook.rs          ← (stub) full hook replacement
+│   └── hook.rs          ← stdin → dispatch → HookOutput
+├── hooks/
+│   ├── mod.rs           ← HookHandler trait, dispatch(), detect_tool_error()
+│   ├── context.rs       ← HookContext, session file finders
+│   ├── claude.rs        ← PreToolUse, PostToolUse, Stop, SessionStart
+│   ├── codex.rs         ← Notify
+│   └── gemini.rs        ← AfterTool, AfterModel, AfterAgent, SessionEnd
 ├── parsers/
 │   ├── common.rs        ← shared: pad16, ts_to_ns, subtract_ms
 │   ├── claude.rs        ← port of session-parser.sh
 │   ├── codex.rs         ← port of codex-session-parser.sh
 │   └── gemini.rs        ← port of gemini-session-parser.sh
+├── emit.rs              ← fire-and-forget OTLP POST (reads OTEL_HTTP_URL)
 ├── otlp.rs              ← OTLP JSON builders (metrics + traces)
 ├── git_context.rs       ← git repo/branch extraction
 └── sensitive.rs         ← regex patterns for sensitive file detection
