@@ -165,3 +165,61 @@ impl HookHandler for SessionEnd {
         Ok(HookOutput::Json(json!({})))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hooks::context::HookContext;
+
+    fn make_ctx(input: serde_json::Value) -> HookContext {
+        HookContext {
+            input,
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: "test-repo".into(),
+                branch: "main".into(),
+            },
+            session_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn after_tool_returns_json() {
+        let ctx = make_ctx(json!({
+            "tool_name": "read_file",
+            "tool_input": { "file_path": "/app/main.py" },
+            "tool_response": "contents"
+        }));
+        let result = AfterTool.execute(&ctx).unwrap();
+        match result {
+            HookOutput::Json(v) => assert_eq!(v, json!({})),
+            _ => panic!("expected Json"),
+        }
+    }
+
+    #[test]
+    fn after_model_returns_json_without_finish_reason() {
+        let ctx = make_ctx(json!({
+            "llm_response": { "candidates": [{}] }
+        }));
+        let result = AfterModel.execute(&ctx).unwrap();
+        match result {
+            HookOutput::Json(v) => assert_eq!(v, json!({})),
+            _ => panic!("expected Json"),
+        }
+    }
+
+    #[test]
+    fn session_end_returns_json() {
+        let ctx = make_ctx(json!({}));
+        let result = SessionEnd.execute(&ctx).unwrap();
+        match result {
+            HookOutput::Json(v) => assert_eq!(v, json!({})),
+            _ => panic!("expected Json"),
+        }
+    }
+}

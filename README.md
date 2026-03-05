@@ -6,11 +6,23 @@
 
 **Rust accelerator for [shepard-obs-stack](https://github.com/shepard-system/shepard-obs-stack) hooks** — optional drop-in replacement for bash+jq+curl hook scripts.
 
-A single `shepard-hook` binary replaces 9 shell scripts, 3 session parsers, and all `jq`/`curl` invocations. If the binary is on PATH, hooks use it. If absent, fall back to bash+jq (zero breakage).
+A single `shepard-hook` binary replaces 9 shell scripts, 3 session parsers, and all `jq`/`curl` invocations. If the binary is found (project-local or on PATH), hooks use it. If absent, fall back to bash+jq (zero breakage).
 
 ## Quick Start
 
 **Prerequisites:** Rust 1.85+ (edition 2024), [shepard-obs-stack](https://github.com/shepard-system/shepard-obs-stack) running on localhost.
+
+### Option A: Install via obs-stack (recommended)
+
+```bash
+cd shepard-obs-stack
+./scripts/install-accelerator.sh           # downloads to hooks/bin/ (no sudo)
+./scripts/install-accelerator.sh v0.1.0    # specific version
+```
+
+The binary lives inside the project at `hooks/bin/shepard-hook` — no system PATH modification needed.
+
+### Option B: Build from source
 
 ```bash
 git clone https://github.com/shepard-system/shepard-hooks-rs.git
@@ -72,22 +84,29 @@ shepard-hook parse-session claude session.jsonl \
 
 ## Integration
 
-Add to your obs-stack hooks for automatic fallback:
+The obs-stack hooks auto-detect the binary via `hooks/lib/accelerator.sh`:
 
 ```bash
-# In hooks/lib/metrics.sh:
-if command -v shepard-hook &>/dev/null; then
-    shepard-hook emit-metric "$name" "$value" "$labels_json" &
-else
-    # existing jq + curl logic
-fi
+# Resolution order:
+# 1. hooks/bin/shepard-hook  (project-local, primary)
+# 2. command -v shepard-hook (global PATH)
+# 3. empty → bash fallback
 
-# In hooks/claude/stop.sh:
-if command -v shepard-hook &>/dev/null; then
-    shepard-hook hook claude stop &
-else
-    # existing bash hook logic
+# In every hook script:
+source "${SCRIPT_DIR}/../lib/accelerator.sh"
+if [[ -n "$SHEPARD_HOOK" ]]; then
+    "$SHEPARD_HOOK" hook claude stop
+    exit $?
 fi
+# ... bash fallback below
+```
+
+Install the accelerator:
+```bash
+cd shepard-obs-stack
+./scripts/install-accelerator.sh    # downloads to hooks/bin/
+# or
+./hooks/install.sh                  # installs hooks + accelerator together
 ```
 
 ## Architecture

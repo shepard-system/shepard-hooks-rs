@@ -250,6 +250,130 @@ fn hook_codex_notify_ignores_non_turn_complete() {
 }
 
 #[test]
+fn hook_claude_post_tool_use_exits_cleanly() {
+    let output = binary()
+        .args(["hook", "claude", "post-tool-use"])
+        .env("OTEL_HTTP_URL", "http://127.0.0.1:1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(
+                    br#"{"tool_name":"Read","tool_input":{"file_path":"/app/main.rs"},"tool_response":"ok"}"#,
+                )
+                .unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run");
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn hook_claude_stop_exits_cleanly() {
+    let output = binary()
+        .args(["hook", "claude", "stop"])
+        .env("OTEL_HTTP_URL", "http://127.0.0.1:1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"stop_hook_active":"true"}"#)
+                .unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run");
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn hook_codex_notify_processes_turn_complete() {
+    let output = binary()
+        .args(["hook", "codex", "notify"])
+        .env("OTEL_HTTP_URL", "http://127.0.0.1:1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"type":"agent-turn-complete","thread-id":"test-123"}"#)
+                .unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run");
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn hook_gemini_after_tool_exits_with_json() {
+    let output = binary()
+        .args(["hook", "gemini", "after-tool"])
+        .env("OTEL_HTTP_URL", "http://127.0.0.1:1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"tool_name":"read_file","tool_input":{},"tool_response":"ok"}"#)
+                .unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "{}");
+}
+
+#[test]
+fn hook_gemini_session_end_exits_with_json() {
+    let output = binary()
+        .args(["hook", "gemini", "session-end"])
+        .env("OTEL_HTTP_URL", "http://127.0.0.1:1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(b"{}").unwrap();
+            child.wait_with_output()
+        })
+        .expect("failed to run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "{}");
+}
+
+#[test]
 fn hook_gemini_after_model_skips_without_finish_reason() {
     let output = binary()
         .args(["hook", "gemini", "after-model"])

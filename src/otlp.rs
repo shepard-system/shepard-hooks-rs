@@ -46,12 +46,6 @@ pub fn build_sum_metric(
 }
 
 /// Build an OTLP ExportTraceServiceRequest from parsed span JSON values.
-///
-/// Input spans have the shape:
-/// ```json
-/// { "trace_id", "span_id", "parent_span_id", "name", "start_ns", "end_ns",
-///   "status": 0|2, "attributes": {...} }
-/// ```
 pub fn build_trace_export(service_name: &str, spans: &[Value]) -> Value {
     let otlp_spans: Vec<Value> = spans
         .iter()
@@ -103,4 +97,80 @@ pub fn build_trace_export(service_name: &str, spans: &[Value]) -> Value {
             }]
         }]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_sum_metric_has_correct_structure() {
+        let mut labels = HashMap::new();
+        labels.insert("source".into(), "claude-code".into());
+        labels.insert("tool".into(), "Read".into());
+
+        let result = build_sum_metric("tool_calls", 1.0, &labels, "1234567890");
+
+        // Top-level structure
+        let rm = &result["resourceMetrics"][0];
+        let svc = &rm["resource"]["attributes"][0];
+        assert_eq!(svc["key"], "service.name");
+        assert_eq!(svc["value"]["stringValue"], "shepherd-hooks");
+
+        // Metric name and value
+        let metric = &rm["scopeMetrics"][0]["metrics"][0];
+        assert_eq!(metric["name"], "tool_calls");
+        assert_eq!(metric["sum"]["dataPoints"][0]["asDouble"], 1.0);
+        assert_eq!(metric["sum"]["dataPoints"][0]["timeUnixNano"], "1234567890");
+        assert_eq!(metric["sum"]["aggregationTemporality"], 1);
+        assert_eq!(metric["sum"]["isMonotonic"], true);
+
+        // Labels present in dataPoint attributes
+        let dp_attrs = metric["sum"]["dataPoints"][0]["attributes"]
+            .as_array()
+            .unwrap();
+        assert_eq!(dp_attrs.len(), 2);
+    }
+
+    #[test]
+    fn build_trace_export_wraps_spans() {
+        let spans = vec![json!({
+            "trace_id": "abc123",
+            "span_id": "0000000000000001",
+            "parent_span_id": "",
+            "name": "test.session",
+            "start_ns": "1000",
+            "end_ns": "2000",
+            "status": 0,
+            "attributes": { "provider": "test", "tokens.input": "100" }
+        })];
+
+        let result = build_trace_export("test-service", &spans);
+
+        // Top-level structure
+        let rs = &result["resourceSpans"][0];
+        let svc = &rs["resource"]["attributes"][0];
+        assert_eq!(svc["key"], "service.name");
+        assert_eq!(svc["value"]["stringValue"], "test-service");
+
+        // Scope
+        let scope = &rs["scopeSpans"][0]["scope"];
+        assert_eq!(scope["name"], "shepherd-session-parser");
+        assert_eq!(scope["version"], "0.1.0");
+
+        // Span mapping
+        let otlp_span = &rs["scopeSpans"][0]["spans"][0];
+        assert_eq!(otlp_span["traceId"], "abc123");
+        assert_eq!(otlp_span["spanId"], "0000000000000001");
+        assert_eq!(otlp_span["name"], "test.session");
+        assert_eq!(otlp_span["kind"], 1);
+        assert_eq!(otlp_span["status"]["code"], 0);
+
+        // Numeric attribute uses intValue, string uses stringValue
+        let attrs = otlp_span["attributes"].as_array().unwrap();
+        let provider_attr = attrs.iter().find(|a| a["key"] == "provider").unwrap();
+        assert!(provider_attr["value"]["stringValue"].is_string());
+        let tokens_attr = attrs.iter().find(|a| a["key"] == "tokens.input").unwrap();
+        assert!(tokens_attr["value"]["intValue"].is_string());
+    }
 }

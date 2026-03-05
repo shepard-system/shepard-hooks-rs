@@ -5,7 +5,7 @@
 **shepard-hooks-rs** — Rust accelerator for shepard-obs-stack hooks.
 Binary name: `shepard-hook`. Optional drop-in replacement for bash+jq hook logic.
 
-If `shepard-hook` is on PATH, hooks use it. If absent, fall back to bash+jq (zero breakage).
+If `shepard-hook` is found (project-local `hooks/bin/` or PATH), hooks use it. If absent, fall back to bash+jq (zero breakage).
 
 ## Commands
 

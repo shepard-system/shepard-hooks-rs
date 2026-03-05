@@ -230,6 +230,76 @@ mod tests {
     }
 
     #[test]
+    fn post_tool_use_returns_silent_on_normal_tool() {
+        let ctx = HookContext {
+            input: json!({
+                "tool_name": "Read",
+                "tool_input": { "file_path": "/app/src/main.rs" },
+                "tool_response": "file contents here"
+            }),
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: "test-repo".into(),
+                branch: "main".into(),
+            },
+            session_id: String::new(),
+        };
+        let result = PostToolUse.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+
+    #[test]
+    fn post_tool_use_returns_silent_on_error_response() {
+        let ctx = HookContext {
+            input: json!({
+                "tool_name": "Bash",
+                "tool_input": { "command": "make build" },
+                "tool_response": "error: compilation failed\nexit code 1"
+            }),
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: "test-repo".into(),
+                branch: "main".into(),
+            },
+            session_id: String::new(),
+        };
+        let result = PostToolUse.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+
+    #[test]
+    fn stop_returns_silent_when_active() {
+        // stop_hook_active=true → re-entry guard → Silent
+        let ctx = HookContext {
+            input: json!({ "stop_hook_active": "true" }),
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: "test-repo".into(),
+                branch: "main".into(),
+            },
+            session_id: String::new(),
+        };
+        let result = Stop.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+
+    #[test]
+    fn stop_returns_silent_when_not_active() {
+        // stop_hook_active absent, no session file → still Silent
+        let ctx = HookContext {
+            input: json!({}),
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: "test-repo".into(),
+                branch: "main".into(),
+            },
+            session_id: "nonexistent-session-id".into(),
+        };
+        let result = Stop.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+
+    #[test]
     fn session_start_returns_static_text() {
         let ctx = HookContext {
             input: json!({}),

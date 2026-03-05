@@ -50,3 +50,44 @@ impl HookHandler for Notify {
         Ok(HookOutput::Silent)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hooks::context::HookContext;
+    use serde_json::json;
+
+    fn make_ctx(input: serde_json::Value) -> HookContext {
+        HookContext {
+            input,
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: "test-repo".into(),
+                branch: "main".into(),
+            },
+            session_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn notify_skips_non_turn_complete() {
+        let ctx = make_ctx(json!({ "type": "other-event" }));
+        let result = Notify.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+
+    #[test]
+    fn notify_processes_turn_complete() {
+        let ctx = make_ctx(json!({
+            "type": "agent-turn-complete",
+            "thread-id": "nonexistent-thread"
+        }));
+        // Should not panic even though session file won't exist and emit will fail
+        let result = Notify.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+}
