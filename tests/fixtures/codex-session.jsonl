@@ -1,0 +1,7 @@
+{"type":"session_meta","payload":{"id":"11111111-2222-3333-4444-555555555555","git":{"branch":"main","repository_url":"https://github.com/test/repo.git"}},"timestamp":"2026-03-05T10:00:00.000Z"}
+{"type":"turn_context","payload":{"model":"o3-mini"},"timestamp":"2026-03-05T10:00:01.000Z"}
+{"type":"event_msg","payload":{"type":"task_started"},"timestamp":"2026-03-05T10:00:02.000Z"}
+{"type":"response_item","payload":{"type":"function_call","call_id":"call_001","name":"shell","arguments":"{\"cmd\":\"ls -la\"}"},"timestamp":"2026-03-05T10:00:03.000Z"}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_001","output":"total 0"},"timestamp":"2026-03-05T10:00:04.000Z"}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":200,"output_tokens":100,"cached_input_tokens":50,"reasoning_output_tokens":30,"total_tokens":380}}},"timestamp":"2026-03-05T10:00:05.000Z"}
+{"type":"event_msg","payload":{"type":"task_complete"},"timestamp":"2026-03-05T10:00:06.000Z"}

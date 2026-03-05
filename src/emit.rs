@@ -45,3 +45,47 @@ fn post_json(url: &str, payload: &serde_json::Value) -> Result<(), Box<dyn std::
         .send()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collector_base_returns_string() {
+        // Cannot test env var mutation in parallel tests (edition 2024 unsafe).
+        // Just verify it returns a valid URL string.
+        let base = collector_base();
+        assert!(base.starts_with("http"));
+    }
+
+    #[test]
+    fn traces_skips_empty_spans() {
+        traces("test-service", &[]);
+    }
+
+    #[test]
+    fn metric_does_not_panic_on_connection_refused() {
+        // Post to a port nothing listens on — must not panic.
+        let payload = crate::otlp::build_sum_metric("test", 1.0, &HashMap::new(), "0");
+        // post_json to a bogus URL should return Err, not panic
+        let result = post_json("http://127.0.0.1:1/v1/metrics", &payload);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn traces_does_not_panic_on_connection_refused() {
+        let spans = vec![serde_json::json!({
+            "trace_id": "abc123",
+            "span_id": "0000000000000001",
+            "parent_span_id": "",
+            "name": "test.span",
+            "start_ns": "1000",
+            "end_ns": "2000",
+            "status": 0,
+            "attributes": {}
+        })];
+        let payload = crate::otlp::build_trace_export("test", &spans);
+        let result = post_json("http://127.0.0.1:1/v1/traces", &payload);
+        assert!(result.is_err());
+    }
+}
