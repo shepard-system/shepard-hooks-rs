@@ -19,7 +19,10 @@ pub fn parse_to_spans(file_path: &str) -> Vec<Value> {
 pub fn parse(file_path: &str) -> Result<(), Box<dyn Error>> {
     let spans = parse_inner(file_path)?;
     for span in &spans {
-        println!("{}", serde_json::to_string(span).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string(span).expect("Value is always serializable")
+        );
     }
     Ok(())
 }
@@ -222,7 +225,12 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
                 if c["type"].as_str() == Some("tool_use") {
                     let mut cmd = c["input"]["command"].as_str().unwrap_or("").to_string();
                     if cmd.len() > 200 {
-                        cmd.truncate(200);
+                        // Find a valid UTF-8 char boundary at or before byte 200
+                        let mut end = 200;
+                        while !cmd.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        cmd.truncate(end);
                     }
                     tools.push(ToolEntry {
                         id: c["id"].as_str().unwrap_or("").to_string(),
@@ -692,5 +700,53 @@ mod tests {
         let root = &spans[0];
         assert_eq!(root["attributes"]["has_interruption"], "true");
         assert_eq!(root["attributes"]["interruption.count"], "1");
+    }
+
+    #[test]
+    fn command_truncate_respects_utf8_boundary() {
+        let sid = "aaaaaaaa-bbbb-0005-dddd-eeeeeeeeeeee";
+        // 198 ASCII bytes + "日本" (3 bytes each = 6 bytes) → 204 bytes total
+        // truncate must land at 198, not panic splitting a 3-byte char
+        let long_cmd = format!("{}{}", "A".repeat(198), "日本");
+        assert_eq!(long_cmd.len(), 204);
+
+        let path = write_fixture(
+            "utf8trunc",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![
+                        json!({"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":long_cmd}}),
+                    ],
+                    10,
+                ),
+                user_tool_result("2026-01-01T00:00:03.000Z", sid, "tu_1"),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"done"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let tool_span = spans
+            .iter()
+            .find(|s| s["name"] == "claude.tool.Bash")
+            .unwrap();
+        let cmd = tool_span["attributes"]["tool.input.command"]
+            .as_str()
+            .unwrap();
+        // Must truncate to 198 (before the 3-byte char at 198..201)
+        assert_eq!(cmd.len(), 198);
+        assert!(cmd.is_char_boundary(cmd.len()));
     }
 }

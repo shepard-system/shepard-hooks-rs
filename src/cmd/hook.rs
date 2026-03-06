@@ -25,7 +25,12 @@ pub fn run(provider: &str, hook_name: &str) -> Result<(), Box<dyn Error>> {
     match output {
         HookOutput::Silent => {}
         HookOutput::Stdout(text) => println!("{text}"),
-        HookOutput::Json(val) => println!("{}", serde_json::to_string(&val).unwrap()),
+        HookOutput::Json(val) => {
+            println!(
+                "{}",
+                serde_json::to_string(&val).expect("Value is always serializable")
+            )
+        }
         HookOutput::Block(msg) => {
             eprintln!("{msg}");
             std::process::exit(2);

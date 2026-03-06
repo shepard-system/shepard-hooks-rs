@@ -98,7 +98,7 @@ pub fn dispatch(provider: &str, hook_name: &str) -> Result<&'static dyn HookHand
 
 static ERROR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)(^error|"error"|traceback|exit code [1-9]|command failed|FAILED|panic:)"#)
-        .unwrap()
+        .expect("ERROR_RE is a valid regex")
 });
 
 pub fn detect_tool_error(response: &str) -> bool {

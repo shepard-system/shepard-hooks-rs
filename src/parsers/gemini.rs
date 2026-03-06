@@ -17,7 +17,10 @@ pub fn parse_to_spans(file_path: &str) -> Vec<Value> {
 pub fn parse(file_path: &str) -> Result<(), Box<dyn Error>> {
     let spans = parse_inner(file_path)?;
     for span in &spans {
-        println!("{}", serde_json::to_string(span).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string(span).expect("Value is always serializable")
+        );
     }
     Ok(())
 }

@@ -12,7 +12,12 @@ static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
-        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+        .unwrap_or_else(|_| {
+            reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .expect("default HTTP client must build")
+        })
 });
 
 /// Fire-and-forget metric POST. Errors logged to stderr, never propagated.

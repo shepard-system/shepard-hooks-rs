@@ -3,12 +3,12 @@ use std::sync::LazyLock;
 
 /// File path patterns — checked against file_path and notebook_path.
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(\.env$|\.env\.|credentials|secrets|\.pem$|\.key$|id_rsa|id_ed25519|\.p12$|password|token\.json|\.secret|\.aws/)").unwrap()
+    Regex::new(r"(?i)(\.env$|\.env\.|credentials|secrets|\.pem$|\.key$|id_rsa|id_ed25519|\.p12$|password|token\.json|\.secret|\.aws/)").expect("FILE_RE is a valid regex")
 });
 
 /// Command patterns — more specific to avoid false positives.
 static CMD_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(\.env\s|\.env$|/\.env|credentials\.|credentials/|/secrets/|/secrets$|\.pem\s|\.pem$|\.key\s|\.key$|id_rsa|id_ed25519|\.p12\s|\.p12$|token\.json|\.secret|\.aws/)").unwrap()
+    Regex::new(r"(?i)(\.env\s|\.env$|/\.env|credentials\.|credentials/|/secrets/|/secrets$|\.pem\s|\.pem$|\.key\s|\.key$|id_rsa|id_ed25519|\.p12\s|\.p12$|token\.json|\.secret|\.aws/)").expect("CMD_RE is a valid regex")
 });
 
 /// Check if a file path matches sensitive patterns.

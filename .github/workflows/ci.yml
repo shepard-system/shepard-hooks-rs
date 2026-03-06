@@ -18,6 +18,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
       - run: cargo test
+      - name: Security audit
+        run: cargo install cargo-audit && cargo audit
 
   coverage:
     runs-on: ubuntu-latest
