@@ -118,6 +118,7 @@ fn find_recursive(dir: &PathBuf, predicate: &dyn Fn(&str) -> bool) -> Option<Pat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn find_claude_session_builds_correct_path() {
@@ -135,5 +136,31 @@ mod tests {
     #[test]
     fn find_gemini_session_returns_none_for_short_id() {
         assert!(find_gemini_session("abc").is_none());
+    }
+
+    #[test]
+    fn find_recursive_finds_nested_file() {
+        let tmp = std::env::temp_dir().join("shepard-test-recursive");
+        let nested = tmp.join("a").join("b").join("c");
+        fs::create_dir_all(&nested).unwrap();
+        let target = nested.join("rollout-abc123.jsonl");
+        fs::write(&target, "").unwrap();
+
+        let result = find_recursive(&tmp, &|name: &str| name == "rollout-abc123.jsonl");
+        assert_eq!(result, Some(target));
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn find_recursive_returns_none_when_no_match() {
+        let tmp = std::env::temp_dir().join("shepard-test-nomatch");
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("other.txt"), "").unwrap();
+
+        let result = find_recursive(&tmp, &|name: &str| name == "missing.jsonl");
+        assert!(result.is_none());
+
+        fs::remove_dir_all(&tmp).unwrap();
     }
 }
