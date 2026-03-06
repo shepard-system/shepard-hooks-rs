@@ -8,7 +8,10 @@ use super::common::{pad16, ts_to_ns};
 
 /// Parse a Codex CLI JSONL session file and return spans as Vec<Value>.
 pub fn parse_to_spans(file_path: &str) -> Vec<Value> {
-    parse_inner(file_path).unwrap_or_default()
+    parse_inner(file_path).unwrap_or_else(|e| {
+        eprintln!("shepard-hook: codex session parse failed: {e}");
+        Vec::new()
+    })
 }
 
 /// Parse a Codex CLI JSONL session file and emit span JSONL to stdout.

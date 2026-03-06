@@ -9,7 +9,10 @@ use super::common::{pad16, parts_to_ns, subtract_ms, ts_parts, ts_to_ns};
 /// Parse a Claude Code JSONL session file and return spans as Vec<Value>.
 /// Returns empty vec on any parse error or missing session ID.
 pub fn parse_to_spans(file_path: &str) -> Vec<Value> {
-    parse_inner(file_path).unwrap_or_default()
+    parse_inner(file_path).unwrap_or_else(|e| {
+        eprintln!("shepard-hook: claude session parse failed: {e}");
+        Vec::new()
+    })
 }
 
 /// Parse a Claude Code JSONL session file and emit span JSONL to stdout.

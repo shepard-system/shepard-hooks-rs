@@ -56,6 +56,7 @@ pub fn find_claude_session(cwd: &str, session_id: &str) -> Option<PathBuf> {
 }
 
 /// Codex: find ~/.codex/sessions -name "rollout-*-{thread_id}.jsonl"
+/// Sessions are stored in nested YYYY/MM/DD subdirectories.
 pub fn find_codex_session(thread_id: &str) -> Option<PathBuf> {
     if thread_id.is_empty() {
         return None;
@@ -67,19 +68,14 @@ pub fn find_codex_session(thread_id: &str) -> Option<PathBuf> {
     }
 
     let suffix = format!("-{thread_id}.jsonl");
-    std::fs::read_dir(sessions_dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            name.starts_with("rollout-") && name.ends_with(&suffix)
-        })
-        .map(|e| e.path())
+    find_recursive(&sessions_dir, &|name: &str| {
+        name.starts_with("rollout-") && name.ends_with(&suffix)
+    })
 }
 
 /// Gemini: find ~/.gemini/tmp -name "session-*-{prefix}*.json"
 /// prefix = first 8 chars of session_id
+/// Sessions are stored in nested project/chats subdirectories.
 pub fn find_gemini_session(session_id: &str) -> Option<PathBuf> {
     if session_id.len() < 8 {
         return None;
@@ -91,15 +87,28 @@ pub fn find_gemini_session(session_id: &str) -> Option<PathBuf> {
         return None;
     }
 
-    std::fs::read_dir(tmp_dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            name.starts_with("session-") && name.contains(prefix) && name.ends_with(".json")
-        })
-        .map(|e| e.path())
+    find_recursive(&tmp_dir, &|name: &str| {
+        name.starts_with("session-") && name.contains(prefix) && name.ends_with(".json")
+    })
+}
+
+/// Recursively search a directory for a file matching the predicate.
+fn find_recursive(dir: &PathBuf, predicate: &dyn Fn(&str) -> bool) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_file()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && predicate(name)
+        {
+            return Some(path);
+        } else if path.is_dir()
+            && let Some(found) = find_recursive(&path, predicate)
+        {
+            return Some(found);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
