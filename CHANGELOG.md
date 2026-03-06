@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-03-05
+## [0.1.0] — 2026-03-06
 
 ### Added
 
@@ -19,7 +19,15 @@ All notable changes to this project will be documented in this file.
   - Codex: Notify (agent-turn-complete filter, session parse)
   - Gemini: AfterTool, AfterModel, AfterAgent, SessionEnd
 - Sensitive file detection (`.env`, credentials, `.pem`, `.key`, `id_rsa`, `.aws/`)
-- Git context extraction (repo name + branch)
+- Git context extraction (repo name)
 - Fire-and-forget OTLP emitters with `OTEL_HTTP_URL` env var support
-- CI workflow (clippy + test + fmt) and release workflow (4 cross-compile targets)
+- CI workflow (clippy + test + fmt + coverage) and release workflow (4 cross-compile targets)
 - C4 architecture diagrams (system context, container, component, dynamic flow)
+
+### Fixed
+
+- Session finders for Codex/Gemini now search recursively (nested YYYY/MM/DD and project/chats dirs)
+- PreToolUse checks only file paths, not commands (bash parity — avoids false positives)
+- HTTP client uses 2s timeout to prevent blocking CLI on unreachable collector
+- OTLP responses checked for HTTP error status (4xx/5xx logged instead of silently dropped)
+- Parse errors in `parse_to_spans` logged to stderr instead of silently returning empty

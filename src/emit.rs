@@ -26,7 +26,7 @@ pub fn metric(name: &str, value: f64, labels: &HashMap<String, String>) {
     let url = format!("{}/v1/metrics", *COLLECTOR_BASE);
 
     if let Err(e) = post_json(&url, &payload) {
-        eprintln!("shepard-hook: metric emit failed: {e}");
+        eprintln!("shepard-hook: metric emit failed ({url}): {e}");
     }
 }
 
@@ -40,7 +40,7 @@ pub fn traces(service_name: &str, spans: &[serde_json::Value]) {
     let url = format!("{}/v1/traces", *COLLECTOR_BASE);
 
     if let Err(e) = post_json(&url, &payload) {
-        eprintln!("shepard-hook: trace emit failed: {e}");
+        eprintln!("shepard-hook: trace emit failed ({url}): {e}");
     }
 }
 
@@ -49,7 +49,8 @@ fn post_json(url: &str, payload: &serde_json::Value) -> Result<(), Box<dyn std::
         .post(url)
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(payload)?)
-        .send()?;
+        .send()?
+        .error_for_status()?;
     Ok(())
 }
 
@@ -72,6 +73,17 @@ mod tests {
     fn metric_does_not_panic_on_connection_refused() {
         let payload = crate::otlp::build_sum_metric("test", 1.0, &HashMap::new(), "0");
         let result = post_json("http://127.0.0.1:1/v1/metrics", &payload);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn post_json_returns_err_on_http_error_status() {
+        // error_for_status() ensures 4xx/5xx are not silently swallowed
+        let payload = serde_json::json!({});
+        // POST to a path that doesn't exist on any local server — if a server
+        // happens to be running, it returns 404/405; if not, connection refused.
+        // Either way, post_json must return Err.
+        let result = post_json("http://127.0.0.1:1/nonexistent", &payload);
         assert!(result.is_err());
     }
 
