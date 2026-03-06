@@ -38,11 +38,17 @@ impl HookHandler for PreToolUse {
     }
 
     fn execute(&self, ctx: &HookContext) -> Result<HookOutput, HookError> {
-        let tool_input = &ctx.input["tool_input"];
+        // Only check file_path — command checking intentionally skipped to match
+        // bash parity and avoid false positives (e.g. "aws configure export-credentials").
+        // PostToolUse still counts command-based sensitive access via metrics.
+        let file_path = ctx.input["tool_input"]["file_path"]
+            .as_str()
+            .or_else(|| ctx.input["tool_input"]["notebook_path"].as_str())
+            .unwrap_or("");
 
-        if let Some(matched) = crate::sensitive::check_sensitive_access(tool_input) {
+        if crate::sensitive::is_sensitive_path(file_path) {
             return Ok(HookOutput::Block(format!(
-                "Blocked: access to sensitive file {matched}"
+                "Blocked: access to sensitive file {file_path}"
             )));
         }
 
@@ -178,6 +184,24 @@ mod tests {
             input: json!({
                 "tool_name": "Read",
                 "tool_input": { "file_path": "/app/src/main.rs" }
+            }),
+            cwd: ".".into(),
+            git: crate::git_context::GitContext {
+                repo: String::new(),
+            },
+            session_id: String::new(),
+        };
+        let result = PreToolUse.execute(&ctx).unwrap();
+        assert!(matches!(result, HookOutput::Silent));
+    }
+
+    #[test]
+    fn pre_tool_use_allows_sensitive_command() {
+        // Commands are intentionally NOT blocked in PreToolUse (bash parity)
+        let ctx = HookContext {
+            input: json!({
+                "tool_name": "Bash",
+                "tool_input": { "command": "cat /app/.env" }
             }),
             cwd: ".".into(),
             git: crate::git_context::GitContext {

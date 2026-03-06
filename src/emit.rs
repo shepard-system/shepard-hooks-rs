@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::otlp;
 
@@ -8,8 +8,12 @@ static COLLECTOR_BASE: LazyLock<String> = LazyLock::new(|| {
     std::env::var("OTEL_HTTP_URL").unwrap_or_else(|_| "http://localhost:4318".to_string())
 });
 
-static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> =
-    LazyLock::new(reqwest::blocking::Client::new);
+static HTTP_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+});
 
 /// Fire-and-forget metric POST. Errors logged to stderr, never propagated.
 pub fn metric(name: &str, value: f64, labels: &HashMap<String, String>) {
