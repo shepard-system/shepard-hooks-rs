@@ -77,14 +77,32 @@ mod tests {
     }
 
     #[test]
-    fn post_json_returns_err_on_http_error_status() {
-        // error_for_status() ensures 4xx/5xx are not silently swallowed
+    fn post_json_returns_err_on_http_500() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}/v1/metrics");
+
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+            stream.write_all(resp.as_bytes()).unwrap();
+        });
+
         let payload = serde_json::json!({});
-        // POST to a path that doesn't exist on any local server — if a server
-        // happens to be running, it returns 404/405; if not, connection refused.
-        // Either way, post_json must return Err.
-        let result = post_json("http://127.0.0.1:1/nonexistent", &payload);
+        let result = post_json(&url, &payload);
+        handle.join().unwrap();
+
         assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("500") || err.contains("Server Error"),
+            "expected HTTP 500 error, got: {err}"
+        );
     }
 
     #[test]

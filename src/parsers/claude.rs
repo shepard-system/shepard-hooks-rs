@@ -501,3 +501,196 @@ fn make_span_raw(
         "attributes": attrs,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Write JSONL entries to a temp file. Caller should clean up.
+    fn write_fixture(name: &str, entries: &[Value]) -> String {
+        let path = format!(
+            "{}/shepard-test-claude-{name}.jsonl",
+            std::env::temp_dir().display()
+        );
+        let content: String = entries
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    fn sys(sid: &str) -> Value {
+        json!({"type":"system","sessionId":sid,"timestamp":"2026-01-01T00:00:00.000Z"})
+    }
+
+    fn user_text(ts: &str, sid: &str, text: &str) -> Value {
+        json!({"type":"user","message":{"content":text,"role":"user"},"timestamp":ts,"sessionId":sid})
+    }
+
+    fn user_tool_result(ts: &str, sid: &str, tool_use_id: &str) -> Value {
+        json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":tool_use_id,"content":"ok"}],"role":"user"},"timestamp":ts,"sessionId":sid})
+    }
+
+    fn asst(ts: &str, sid: &str, msg_id: &str, content: Vec<Value>, output_tokens: i64) -> Value {
+        json!({"type":"assistant","message":{"id":msg_id,"model":"claude-sonnet-4-20250514","content":content,"usage":{"input_tokens":10,"output_tokens":output_tokens,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"stop_reason":"end_turn","role":"assistant"},"timestamp":ts,"sessionId":sid})
+    }
+
+    #[test]
+    fn dedupe_assistant_keeps_last_by_id() {
+        let sid = "aaaaaaaa-bbbb-0001-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "dedup",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_dup",
+                    vec![json!({"type":"text","text":"first"})],
+                    99,
+                ),
+                asst(
+                    "2026-01-01T00:00:03.000Z",
+                    sid,
+                    "msg_dup",
+                    vec![json!({"type":"text","text":"second"})],
+                    42,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let root = &spans[0];
+        assert_eq!(root["name"], "claude.session");
+        // Dedup keeps last → output_tokens = 42, not 99
+        assert_eq!(root["attributes"]["tokens.output"], "42");
+    }
+
+    #[test]
+    fn turn_count_ignores_tool_result_only_user_msg() {
+        let sid = "aaaaaaaa-bbbb-0002-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "turns",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![
+                        json!({"type":"text","text":"reading"}),
+                        json!({"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"/x"}}),
+                    ],
+                    10,
+                ),
+                user_tool_result("2026-01-01T00:00:03.000Z", sid, "tu_1"),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"done"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let root = &spans[0];
+        // Only "Hi" counts — tool_result-only user msg is excluded
+        assert_eq!(root["attributes"]["turn.count"], "1");
+    }
+
+    #[test]
+    fn command_truncates_to_200() {
+        let sid = "aaaaaaaa-bbbb-0003-dddd-eeeeeeeeeeee";
+        let long_cmd = "A".repeat(250);
+        let path = write_fixture(
+            "truncate",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![
+                        json!({"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":long_cmd}}),
+                    ],
+                    10,
+                ),
+                user_tool_result("2026-01-01T00:00:03.000Z", sid, "tu_1"),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"done"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let tool_span = spans
+            .iter()
+            .find(|s| s["name"] == "claude.tool.Bash")
+            .unwrap();
+        let cmd = tool_span["attributes"]["tool.input.command"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            cmd.len(),
+            200,
+            "command should be truncated to 200 chars, got {}",
+            cmd.len()
+        );
+    }
+
+    #[test]
+    fn interruption_detection() {
+        let sid = "aaaaaaaa-bbbb-0004-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "interrupt",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![json!({"type":"text","text":"Working..."})],
+                    10,
+                ),
+                user_text(
+                    "2026-01-01T00:00:03.000Z",
+                    sid,
+                    "Request interrupted by user",
+                ),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"Stopped"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let root = &spans[0];
+        assert_eq!(root["attributes"]["has_interruption"], "true");
+        assert_eq!(root["attributes"]["interruption.count"], "1");
+    }
+}
