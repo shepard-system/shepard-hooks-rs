@@ -306,6 +306,86 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
     Ok(spans)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_fixture(name: &str, lines: &[Value]) -> String {
+        let dir = std::env::temp_dir().join("shepard-codex-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{name}.jsonl"));
+        let content: String = lines
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, content).unwrap();
+        path.to_str().unwrap().to_string()
+    }
+
+    fn meta(sid: &str) -> Value {
+        json!({
+            "type": "session_meta",
+            "payload": {"id": sid, "git": {"branch": "main", "repository_url": "https://github.com/test/repo.git"}},
+            "timestamp": "2026-01-01T00:00:00.000Z"
+        })
+    }
+
+    fn turn_context() -> Value {
+        json!({"type": "turn_context", "payload": {"model": "o3-mini"}, "timestamp": "2026-01-01T00:00:01.000Z"})
+    }
+
+    fn task_started() -> Value {
+        json!({"type": "event_msg", "payload": {"type": "task_started"}, "timestamp": "2026-01-01T00:00:02.000Z"})
+    }
+
+    fn func_call(call_id: &str, name: &str, args: &str, ts: &str) -> Value {
+        json!({"type": "response_item", "payload": {"type": "function_call", "call_id": call_id, "name": name, "arguments": args}, "timestamp": ts})
+    }
+
+    fn func_output(call_id: &str, ts: &str) -> Value {
+        json!({"type": "response_item", "payload": {"type": "function_call_output", "call_id": call_id, "output": "ok"}, "timestamp": ts})
+    }
+
+    fn task_complete() -> Value {
+        json!({"type": "event_msg", "payload": {"type": "task_complete"}, "timestamp": "2026-01-01T00:00:10.000Z"})
+    }
+
+    #[test]
+    fn command_truncate_respects_utf8_boundary() {
+        let sid = "aaaaaaaa-bbbb-0001-dddd-eeeeeeeeeeee";
+        // 198 ASCII + "日本" (6 bytes) = 204 bytes total
+        let long_cmd = format!("{}{}", "A".repeat(198), "日本");
+        assert_eq!(long_cmd.len(), 204);
+        let args = json!({"cmd": long_cmd}).to_string();
+
+        let path = write_fixture(
+            "utf8trunc",
+            &[
+                meta(sid),
+                turn_context(),
+                task_started(),
+                func_call("c1", "shell", &args, "2026-01-01T00:00:03.000Z"),
+                func_output("c1", "2026-01-01T00:00:04.000Z"),
+                task_complete(),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let tool_span = spans
+            .iter()
+            .find(|s| s["name"] == "codex.tool.shell")
+            .expect("should have a tool span");
+        let cmd = tool_span["attributes"]["tool.input.command"]
+            .as_str()
+            .unwrap();
+        assert_eq!(cmd.len(), 198);
+        assert!(cmd.is_char_boundary(cmd.len()));
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn make_span(
     trace_id: &str,
