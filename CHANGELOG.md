@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-03-19
+
+### Fixed
+
+- Update `quinn-proto` to 0.11.14 (RUSTSEC-2026-0037, DoS — transitive via reqwest, QUIC not used)
+
+### Added
+
+- UTF-8 truncation test for codex parser
+
 ## [0.1.0] — 2026-03-06
 
 ### Added
