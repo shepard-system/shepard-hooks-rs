@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-03-19
+
+### Added
+
+- **Context breakdown** on Claude root span — 7 new attributes: `context.tool_output_chars`, `context.tool_output_tokens_est`, `context.user_prompt_chars`, `context.user_prompt_tokens_est`, `context.compact_summary_chars`, `context.compact_summary_tokens_est`, `context.compaction_pre_tokens`
+- **Per-turn spans** (`claude.turn`) gated by `SHEPARD_DETAILED_TRACES=1` — per-turn token breakdown, tool count, cache stats (span offset 40016+)
+
 ## [0.2.0] — 2026-03-19
 
 ### Fixed

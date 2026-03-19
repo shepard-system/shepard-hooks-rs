@@ -1,6 +1,6 @@
 [package]
 name = "shepard-hook"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Rust accelerator for shepard-obs-stack hooks — replaces jq/curl with a single binary"
 license = "Elastic-2.0"

@@ -9,7 +9,8 @@ use super::common::{pad16, parts_to_ns, subtract_ms, ts_parts, ts_to_ns};
 /// Parse a Claude Code JSONL session file and return spans as Vec<Value>.
 /// Returns empty vec on any parse error or missing session ID.
 pub fn parse_to_spans(file_path: &str) -> Vec<Value> {
-    parse_inner(file_path).unwrap_or_else(|e| {
+    let detailed = std::env::var("SHEPARD_DETAILED_TRACES").ok().as_deref() == Some("1");
+    parse_inner(file_path, detailed).unwrap_or_else(|e| {
         eprintln!("shepard-hook: claude session parse failed: {e}");
         Vec::new()
     })
@@ -17,7 +18,8 @@ pub fn parse_to_spans(file_path: &str) -> Vec<Value> {
 
 /// Parse a Claude Code JSONL session file and emit span JSONL to stdout.
 pub fn parse(file_path: &str) -> Result<(), Box<dyn Error>> {
-    let spans = parse_inner(file_path)?;
+    let detailed = std::env::var("SHEPARD_DETAILED_TRACES").ok().as_deref() == Some("1");
+    let spans = parse_inner(file_path, detailed)?;
     for span in &spans {
         println!(
             "{}",
@@ -27,7 +29,7 @@ pub fn parse(file_path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
+fn parse_inner(file_path: &str, detailed_traces: bool) -> Result<Vec<Value>, Box<dyn Error>> {
     let mut spans = Vec::new();
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -190,6 +192,54 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         })
         .collect();
 
+    // --- Context breakdown (character counts for token estimation) ---
+
+    // Tool output: sum content lengths from tool_result entries
+    let tool_output_chars: usize = all
+        .iter()
+        .filter(|e| e["type"].as_str() == Some("user"))
+        .flat_map(|e| {
+            e["message"]["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|c| c["type"].as_str() == Some("tool_result"))
+        })
+        .map(|c| {
+            let content = &c["content"];
+            if content.is_string() {
+                content.as_str().unwrap_or("").len()
+            } else if let Some(arr) = content.as_array() {
+                arr.iter()
+                    .map(|item| item["text"].as_str().unwrap_or("").len())
+                    .sum()
+            } else {
+                0
+            }
+        })
+        .sum();
+
+    // User prompts vs compact summaries (single pass, mutually exclusive)
+    let (mut user_prompt_chars, mut compact_summary_chars) = (0usize, 0usize);
+    for e in &all {
+        if e["type"].as_str() != Some("user") {
+            continue;
+        }
+        let content = &e["message"]["content"];
+        if !content.is_string() {
+            continue;
+        }
+        let len = content.as_str().unwrap_or("").len();
+        if e["isCompactSummary"].as_bool() == Some(true) {
+            compact_summary_chars += len;
+        } else {
+            user_prompt_chars += len;
+        }
+    }
+
+    // Compaction pre-tokens total
+    let compaction_pre_tokens: i64 = compactions.iter().map(|(_, _, pt)| pt).sum();
+
     // Tool result lookup: tool_use_id → (timestamp, is_error)
     let mut results: HashMap<String, (String, bool)> = HashMap::new();
     for e in &all {
@@ -349,6 +399,13 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         "compaction.count": compactions.len().to_string(),
         "thinking.block_count": thinking_count.to_string(),
         "stop_reason": stop_reason,
+        "context.tool_output_chars": tool_output_chars.to_string(),
+        "context.tool_output_tokens_est": (tool_output_chars / 4).to_string(),
+        "context.user_prompt_chars": user_prompt_chars.to_string(),
+        "context.user_prompt_tokens_est": (user_prompt_chars / 4).to_string(),
+        "context.compact_summary_chars": compact_summary_chars.to_string(),
+        "context.compact_summary_tokens_est": (compact_summary_chars / 4).to_string(),
+        "context.compaction_pre_tokens": compaction_pre_tokens.to_string(),
     });
     if interruption_count > 0 {
         root_attrs["has_interruption"] = json!("true");
@@ -461,6 +518,112 @@ fn parse_inner(file_path: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         ));
     }
 
+    // 6. Per-turn spans (offset: 40016) — gated by SHEPARD_DETAILED_TRACES=1
+    if detailed_traces {
+        // Segment entries into turns: each turn starts at a human user message
+        // (string content, not isCompactSummary)
+        struct Turn<'a> {
+            ts: &'a str,
+            entries: Vec<&'a Value>,
+        }
+        let mut turns: Vec<Turn<'_>> = Vec::new();
+        let mut current: Option<Turn<'_>> = None;
+
+        for e in &all {
+            let is_turn_boundary = e["type"].as_str() == Some("user")
+                && e["isCompactSummary"].as_bool() != Some(true)
+                && e["message"]["content"].is_string();
+
+            if is_turn_boundary {
+                if let Some(t) = current.take() {
+                    turns.push(t);
+                }
+                current = Some(Turn {
+                    ts: e["timestamp"].as_str().unwrap_or(""),
+                    entries: vec![e],
+                });
+            } else if let Some(ref mut t) = current {
+                t.entries.push(e);
+            }
+        }
+        if let Some(t) = current.take() {
+            turns.push(t);
+        }
+
+        for (tidx, turn) in turns.iter().enumerate() {
+            let span_id = pad16(tidx + 40016);
+
+            // Dedup assistant entries within this turn
+            let mut turn_asst_map: HashMap<String, &Value> = HashMap::new();
+            let mut turn_asst_order: Vec<String> = Vec::new();
+            for &e in &turn.entries {
+                if e["type"].as_str() == Some("assistant") {
+                    let msg_id = e["message"]["id"]
+                        .as_str()
+                        .or_else(|| e["uuid"].as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !turn_asst_map.contains_key(&msg_id) {
+                        turn_asst_order.push(msg_id.clone());
+                    }
+                    turn_asst_map.insert(msg_id, e);
+                }
+            }
+            let turn_assistants: Vec<&Value> = turn_asst_order
+                .iter()
+                .filter_map(|id| turn_asst_map.get(id).copied())
+                .collect();
+
+            // Token aggregation for this turn
+            let (mut t_in, mut t_out, mut t_cache_read, mut t_cache_create) =
+                (0i64, 0i64, 0i64, 0i64);
+            for a in &turn_assistants {
+                let u = &a["message"]["usage"];
+                t_in += u["input_tokens"].as_i64().unwrap_or(0);
+                t_out += u["output_tokens"].as_i64().unwrap_or(0);
+                t_cache_read += u["cache_read_input_tokens"].as_i64().unwrap_or(0);
+                t_cache_create += u["cache_creation_input_tokens"].as_i64().unwrap_or(0);
+            }
+
+            // Tool count within this turn
+            let tool_count: usize = turn_assistants
+                .iter()
+                .flat_map(|a| {
+                    a["message"]["content"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|c| c["type"].as_str() == Some("tool_use"))
+                })
+                .count();
+
+            // Turn end = next turn start or session end
+            let t_finish = if tidx + 1 < turns.len() {
+                turns[tidx + 1].ts
+            } else {
+                t_end
+            };
+
+            spans.push(make_span(
+                &trace_id,
+                &span_id,
+                root_sid,
+                "claude.turn",
+                turn.ts,
+                t_finish,
+                0,
+                &json!({
+                    "turn.index": tidx.to_string(),
+                    "turn.input_tokens": t_in.to_string(),
+                    "turn.output_tokens": t_out.to_string(),
+                    "turn.cache_read_tokens": t_cache_read.to_string(),
+                    "turn.cache_create_tokens": t_cache_create.to_string(),
+                    "turn.tool_count": tool_count.to_string(),
+                }),
+            ));
+        }
+    }
+
     Ok(spans)
 }
 
@@ -528,6 +691,10 @@ mod tests {
             + "\n";
         std::fs::write(&path, content).unwrap();
         path
+    }
+
+    fn parse_with_flag(path: &str, detailed: bool) -> Vec<Value> {
+        parse_inner(path, detailed).unwrap_or_default()
     }
 
     fn sys(sid: &str) -> Value {
@@ -700,6 +867,296 @@ mod tests {
         let root = &spans[0];
         assert_eq!(root["attributes"]["has_interruption"], "true");
         assert_eq!(root["attributes"]["interruption.count"], "1");
+    }
+
+    #[test]
+    fn context_breakdown_attributes() {
+        let sid = "aaaaaaaa-bbbb-0006-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "context",
+            &[
+                sys(sid),
+                // User prompt (12 chars)
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hello world!"),
+                // Assistant with tool_use
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![
+                        json!({"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"/x"}}),
+                    ],
+                    10,
+                ),
+                // Tool result with string content (20 chars)
+                json!({"type":"user","message":{"content":[
+                    {"type":"tool_result","tool_use_id":"tu_1","content":"01234567890123456789"}
+                ],"role":"user"},"timestamp":"2026-01-01T00:00:03.000Z","sessionId":sid}),
+                // Assistant final
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"done"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let root = &spans[0];
+        assert_eq!(root["attributes"]["context.tool_output_chars"], "20");
+        assert_eq!(root["attributes"]["context.tool_output_tokens_est"], "5");
+        assert_eq!(root["attributes"]["context.user_prompt_chars"], "12");
+        assert_eq!(root["attributes"]["context.user_prompt_tokens_est"], "3");
+        assert_eq!(root["attributes"]["context.compact_summary_chars"], "0");
+        assert_eq!(
+            root["attributes"]["context.compact_summary_tokens_est"],
+            "0"
+        );
+        assert_eq!(root["attributes"]["context.compaction_pre_tokens"], "0");
+    }
+
+    #[test]
+    fn context_breakdown_with_compaction() {
+        let sid = "aaaaaaaa-bbbb-0007-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "compact-ctx",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![json!({"type":"text","text":"ok"})],
+                    10,
+                ),
+                // Compaction event with preTokens
+                json!({"type":"system","subtype":"compact_boundary","timestamp":"2026-01-01T00:00:03.000Z",
+                    "sessionId":sid,"compactMetadata":{"trigger":"auto","preTokens":50000}}),
+                // Compact summary (user with isCompactSummary)
+                json!({"type":"user","isCompactSummary":true,"message":{"content":"Summary of prior conversation that is 40 chars","role":"user"},
+                    "timestamp":"2026-01-01T00:00:04.000Z","sessionId":sid}),
+                asst(
+                    "2026-01-01T00:00:05.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"continuing"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let root = &spans[0];
+        // "Hi" = 2 chars, compact summary excluded from user_prompt
+        assert_eq!(root["attributes"]["context.user_prompt_chars"], "2");
+        // Compact summary: "Summary of prior conversation that is 40 chars" = 46 chars
+        assert_eq!(root["attributes"]["context.compact_summary_chars"], "46");
+        assert_eq!(
+            root["attributes"]["context.compact_summary_tokens_est"],
+            "11"
+        );
+        assert_eq!(root["attributes"]["context.compaction_pre_tokens"], "50000");
+    }
+
+    #[test]
+    fn context_tool_output_array_content() {
+        let sid = "aaaaaaaa-bbbb-0008-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "tool-arr",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "Hi"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![
+                        json!({"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"/x"}}),
+                    ],
+                    10,
+                ),
+                // Tool result with array content (text objects)
+                json!({"type":"user","message":{"content":[
+                    {"type":"tool_result","tool_use_id":"tu_1","content":[
+                        {"text":"line one"},
+                        {"text":"line two!!"}
+                    ]}
+                ],"role":"user"},"timestamp":"2026-01-01T00:00:03.000Z","sessionId":sid}),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"done"})],
+                    10,
+                ),
+            ],
+        );
+
+        let spans = parse_to_spans(&path);
+        std::fs::remove_file(&path).ok();
+
+        let root = &spans[0];
+        // "line one" (8) + "line two!!" (10) = 18
+        assert_eq!(root["attributes"]["context.tool_output_chars"], "18");
+    }
+
+    #[test]
+    fn per_turn_spans_not_emitted_by_default() {
+        let sid = "aaaaaaaa-bbbb-0009-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "no-turns",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "First"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![json!({"type":"text","text":"ok"})],
+                    10,
+                ),
+                user_text("2026-01-01T00:00:03.000Z", sid, "Second"),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"ok2"})],
+                    20,
+                ),
+            ],
+        );
+
+        let spans = parse_with_flag(&path, false);
+        std::fs::remove_file(&path).ok();
+
+        let turn_spans: Vec<&Value> = spans
+            .iter()
+            .filter(|s| s["name"] == "claude.turn")
+            .collect();
+        assert!(
+            turn_spans.is_empty(),
+            "per-turn spans should not be emitted without detailed_traces"
+        );
+    }
+
+    #[test]
+    fn per_turn_spans_emitted_when_enabled() {
+        let sid = "aaaaaaaa-bbbb-000a-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "with-turns",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "First"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![
+                        json!({"type":"text","text":"reading"}),
+                        json!({"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"/x"}}),
+                    ],
+                    15,
+                ),
+                user_tool_result("2026-01-01T00:00:03.000Z", sid, "tu_1"),
+                asst(
+                    "2026-01-01T00:00:04.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"done with first"})],
+                    25,
+                ),
+                user_text("2026-01-01T00:00:05.000Z", sid, "Second"),
+                asst(
+                    "2026-01-01T00:00:06.000Z",
+                    sid,
+                    "msg_3",
+                    vec![json!({"type":"text","text":"ok"})],
+                    30,
+                ),
+            ],
+        );
+
+        let spans = parse_with_flag(&path, true);
+        std::fs::remove_file(&path).ok();
+
+        let turn_spans: Vec<&Value> = spans
+            .iter()
+            .filter(|s| s["name"] == "claude.turn")
+            .collect();
+        assert_eq!(turn_spans.len(), 2, "should have 2 turns");
+
+        // Turn 0: msg_1 (15 out) + msg_2 (25 out) = 40 output tokens, 1 tool
+        let t0 = &turn_spans[0];
+        assert_eq!(t0["attributes"]["turn.index"], "0");
+        assert_eq!(t0["attributes"]["turn.output_tokens"], "40");
+        assert_eq!(t0["attributes"]["turn.tool_count"], "1");
+        // Turn 0 ends at turn 1 start
+        assert_eq!(
+            t0["end_ns"],
+            json!("2026-01-01T00:00:05.000Z")
+                .as_str()
+                .map(|t| ts_to_ns(t))
+                .unwrap()
+        );
+
+        // Turn 1: msg_3 (30 out), 0 tools
+        let t1 = &turn_spans[1];
+        assert_eq!(t1["attributes"]["turn.index"], "1");
+        assert_eq!(t1["attributes"]["turn.output_tokens"], "30");
+        assert_eq!(t1["attributes"]["turn.tool_count"], "0");
+    }
+
+    #[test]
+    fn per_turn_skips_compact_summary() {
+        let sid = "aaaaaaaa-bbbb-000b-dddd-eeeeeeeeeeee";
+        let path = write_fixture(
+            "turn-compact",
+            &[
+                sys(sid),
+                user_text("2026-01-01T00:00:01.000Z", sid, "First"),
+                asst(
+                    "2026-01-01T00:00:02.000Z",
+                    sid,
+                    "msg_1",
+                    vec![json!({"type":"text","text":"ok"})],
+                    10,
+                ),
+                // Compact summary — should NOT start a new turn
+                json!({"type":"user","isCompactSummary":true,"message":{"content":"summary","role":"user"},
+                    "timestamp":"2026-01-01T00:00:03.000Z","sessionId":sid}),
+                user_text("2026-01-01T00:00:04.000Z", sid, "Second"),
+                asst(
+                    "2026-01-01T00:00:05.000Z",
+                    sid,
+                    "msg_2",
+                    vec![json!({"type":"text","text":"ok2"})],
+                    20,
+                ),
+            ],
+        );
+
+        let spans = parse_with_flag(&path, true);
+        std::fs::remove_file(&path).ok();
+
+        let turn_spans: Vec<&Value> = spans
+            .iter()
+            .filter(|s| s["name"] == "claude.turn")
+            .collect();
+        assert_eq!(
+            turn_spans.len(),
+            2,
+            "compact summary should not create a turn"
+        );
+        // The compact summary entry should be included in turn 0's entries (not a boundary)
+        assert_eq!(turn_spans[0]["attributes"]["turn.index"], "0");
+        assert_eq!(turn_spans[1]["attributes"]["turn.index"], "1");
     }
 
     #[test]
