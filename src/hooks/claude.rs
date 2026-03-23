@@ -117,15 +117,50 @@ impl HookHandler for Stop {
                 if compaction_count > 0 {
                     let mut labels = HashMap::new();
                     labels.insert("source".into(), "claude-code".into());
-                    labels.insert("git_repo".into(), git_repo);
+                    labels.insert("git_repo".into(), git_repo.clone());
                     emit::metric("compaction_events", compaction_count as f64, &labels);
                 }
             }
 
-            // Parse session and emit traces
+            // Parse session and emit traces + context metrics
             let spans = parsers::claude::parse_to_spans(&path_str);
             if !spans.is_empty() {
                 emit::traces("claude-code-session", &spans);
+
+                // Extract context breakdown from root span (first span)
+                // and emit as metrics — matches bash session-parser logic
+                let root_attrs = &spans[0]["attributes"];
+
+                // context_chars metric (by type) — only when > 0
+                for (attr_key, type_label) in [
+                    ("context.tool_output_chars", "tool_output"),
+                    ("context.user_prompt_chars", "user_prompt"),
+                    ("context.compact_summary_chars", "compact_summary"),
+                ] {
+                    let val: f64 = root_attrs[attr_key]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0.0);
+                    if val > 0.0 {
+                        let mut labels = HashMap::new();
+                        labels.insert("source".into(), "claude-code".into());
+                        labels.insert("type".into(), type_label.into());
+                        labels.insert("git_repo".into(), git_repo.clone());
+                        emit::metric("context_chars", val, &labels);
+                    }
+                }
+
+                // context_compaction_pre_tokens metric — only when > 0
+                let pre_tokens: f64 = root_attrs["context.compaction_pre_tokens"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.0);
+                if pre_tokens > 0.0 {
+                    let mut labels = HashMap::new();
+                    labels.insert("source".into(), "claude-code".into());
+                    labels.insert("git_repo".into(), git_repo.clone());
+                    emit::metric("context_compaction_pre_tokens", pre_tokens, &labels);
+                }
             }
         }
 
